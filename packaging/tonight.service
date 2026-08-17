@@ -1,0 +1,16 @@
+[Unit]
+Description=tonight — a decision engine for your Steam library
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/tonight
+Restart=on-failure
+RestartSec=5
+Environment=TONIGHT_BIND=0.0.0.0:7777
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
