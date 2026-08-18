@@ -83,7 +83,7 @@ async fn main() -> anyhow::Result<()> {
     if cfg.open_browser {
         let url = format!("http://{}", friendly(&local));
         tokio::spawn(async move {
-            let _ = tokio::process::Command::new("xdg-open").arg(url).spawn();
+            let _ = open_in_browser(&url);
         });
     }
 
@@ -91,6 +91,23 @@ async fn main() -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown())
         .await?;
     Ok(())
+}
+
+fn open_in_browser(url: &str) -> std::io::Result<()> {
+    let mut cmd = if cfg!(target_os = "windows") {
+        let mut c = tokio::process::Command::new("cmd");
+        c.args(["/C", "start", "", url]);
+        c
+    } else if cfg!(target_os = "macos") {
+        let mut c = tokio::process::Command::new("open");
+        c.arg(url);
+        c
+    } else {
+        let mut c = tokio::process::Command::new("xdg-open");
+        c.arg(url);
+        c
+    };
+    cmd.spawn().map(|_| ())
 }
 
 fn friendly(addr: &std::net::SocketAddr) -> String {

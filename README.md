@@ -43,34 +43,32 @@ Every recommendation states its reasoning in a sentence you can argue with:
 
 ## Install
 
-### From source
+One command. No Rust, no Docker, no terminal expertise. It downloads the right
+binary, sets itself to start with your login, and opens the table.
+
+**Linux / macOS**
 
 ```sh
-git clone https://github.com/guitaripod/tonight
-cd tonight
-cargo build --release
-./target/release/tonight --open
+curl -fsSL https://github.com/guitaripod/tonight/releases/latest/download/install.sh | sh
 ```
 
-Then open <http://localhost:7777>. That is the whole setup — it finds your Steam
-install, reads it, and starts identifying your library in the background.
+**Windows** (PowerShell — right-click the Start menu → Terminal)
 
-### Docker
-
-```sh
-docker compose up -d
+```powershell
+irm https://github.com/guitaripod/tonight/releases/latest/download/install.ps1 | iex
 ```
 
-`docker-compose.yml` mounts your Steam directory read-only and keeps the database
-in a named volume.
+That is the whole setup — it finds your Steam install, reads it, and starts
+identifying your library in the background. Binaries are attached to every
+[release](https://github.com/guitaripod/tonight/releases) too, if you would rather
+click a download than pipe a script.
 
-### As a user service
+### Advanced
 
-```sh
-install -Dm755 target/release/tonight ~/.local/bin/tonight
-install -Dm644 packaging/tonight.service ~/.config/systemd/user/tonight.service
-systemctl --user enable --now tonight
-```
+- **From source** — clone, `cargo build --release`, `./target/release/tonight --open`.
+- **Docker** — `docker compose up -d`.
+- **As a systemd service** — or just run `install.sh` with a user session, which
+  sets this up for you. The unit is in `packaging/tonight.service`.
 
 ## Where the data comes from
 
