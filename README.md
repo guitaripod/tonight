@@ -12,35 +12,6 @@ Steam client directly, so it works with **no API key and no credentials at all**
 
 ---
 
-## The thesis
-
-Choice paralysis is not an information problem, so more information does not fix
-it. Every complaint people have about their backlog is one of six things, and each
-one is a design decision here:
-
-| The complaint | What `tonight` does |
-| --- | --- |
-| "Too many options, I can't compare them" | Never shows more than three, and the three are deliberately incomparable: a **sure thing**, an **unfinished business**, and a **stranger**. You are choosing a kind of evening, not a game. |
-| "I browse for 40 minutes and then watch YouTube" | Passing is limited. Two passes and the last card is the verdict — there is no third pass. Re-dealing is allowed, counted, and told to your face. |
-| "I don't know if I have time for it" | Every game gets a **session shape** — how long one sitting actually is — derived from genre, categories and description, then corrected by how long *you* actually play it. A 20-minute slot never offers you a grand strategy game. |
-| "I don't know what I'm in the mood for" | Five moods map to five axes (pace, thinking, story, company, calm). The engine matches the game's shape to your state. |
-| "I feel guilty about the ones I never played" | **Amnesty.** Retire a game permanently, in one tap, with the hours it removes from your backlog counted for you. A backlog is only a debt if you agree to owe it. |
-| "I bounce off everything and feel bad" | The **first-impression checkpoint**: twelve minutes in, `tonight` asks whether it is working. Bailing is a first-class, logged, guilt-free answer — and it immediately deals you a replacement. |
-
-Every recommendation states its reasoning in a sentence you can argue with:
-*"You stopped 40 minutes in, 9 months ago. That was never a fair trial."*
-
-## Screens
-
-- **The table** — the three questions, then the hand. Cards land face-down and turn over.
-- **This or that** — seven forced pairwise choices. Cheap for you, dense for the model; Elo plus per-genre weights.
-- **The reckoning** — the honest arithmetic. How many you have never opened, what
-  the unopened ones cost, and the year you would finish at your real pace. Then
-  the amnesty flow, which offers the least likely candidates three at a time.
-- **The vault** — search-only. There is deliberately no browsable wall of boxart
-  anywhere in this app; instead there are shelves that are questions
-  ("You walked out early", "Ghosts", "If someone's over").
-
 ## Install
 
 One command. No Rust, no Docker, no terminal expertise. It downloads the right
@@ -69,6 +40,50 @@ click a download than pipe a script.
 - **Docker** — `docker compose up -d`.
 - **As a systemd service** — or just run `install.sh` with a user session, which
   sets this up for you. The unit is in `packaging/tonight.service`.
+
+## The table
+
+Three questions, then the hand. Cards land face-down and turn over. You choose a
+kind of evening — a sure thing, unfinished business, or a stranger — never a wall
+of boxart.
+
+| The deal | The table afterwards |
+| --- | --- |
+| ![The three questions and the deal](docs/screens/table.png) | ![A dealt hand on the table](docs/screens/hand.png) |
+
+Every recommendation states its reasoning in a sentence you can argue with —
+*"You stopped 40 minutes in, 9 months ago. That was never a fair trial."*
+
+---
+
+## The thesis
+
+Choice paralysis is not an information problem, so more information does not fix
+it. Every complaint people have about their backlog is one of six things, and each
+one is a design decision here:
+
+| The complaint | What `tonight` does |
+| --- | --- |
+| "Too many options, I can't compare them" | Never shows more than three, and the three are deliberately incomparable: a **sure thing**, an **unfinished business**, and a **stranger**. You are choosing a kind of evening, not a game. |
+| "I browse for 40 minutes and then watch YouTube" | Passing is limited. Two passes and the last card is the verdict — there is no third pass. Re-dealing is allowed, counted, and told to your face. |
+| "I don't know if I have time for it" | Every game gets a **session shape** — how long one sitting actually is — derived from genre, categories and description, then corrected by how long *you* actually play it. A 20-minute slot never offers you a grand strategy game. |
+| "I don't know what I'm in the mood for" | Five moods map to five axes (pace, thinking, story, company, calm). The engine matches the game's shape to your state. |
+| "I feel guilty about the ones I never played" | **Amnesty.** Retire a game permanently, in one tap, with the hours it removes from your backlog counted for you. A backlog is only a debt if you agree to owe it. |
+| "I bounce off everything and feel bad" | The **first-impression checkpoint**: twelve minutes in, `tonight` asks whether it is working. Bailing is a first-class, logged, guilt-free answer — and it immediately deals you a replacement. |
+
+Every recommendation states its reasoning in a sentence you can argue with:
+*"You stopped 40 minutes in, 9 months ago. That was never a fair trial."*
+
+## Screens
+
+- **The table** — the three questions, then the hand. Cards land face-down and turn over.
+- **This or that** — seven forced pairwise choices. Cheap for you, dense for the model; Elo plus per-genre weights.
+- **The reckoning** — the honest arithmetic. How many you have never opened, what
+  the unopened ones cost, and the year you would finish at your real pace. Then
+  the amnesty flow, which offers the least likely candidates three at a time.
+- **The vault** — search-only. There is deliberately no browsable wall of boxart
+  anywhere in this app; instead there are shelves that are questions
+  ("You walked out early", "Ghosts", "If someone's over").
 
 ## Where the data comes from
 
