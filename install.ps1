@@ -7,7 +7,11 @@ New-Item -ItemType Directory -Force -Path $Dir | Out-Null
 $Exe = Join-Path $Dir 'tonight.exe'
 
 Write-Host 'Downloading tonight...'
-Invoke-WebRequest "https://github.com/$Repo/releases/$Version/download/tonight-windows-x86_64.exe" -OutFile $Exe
+Invoke-WebRequest "https://github.com/$Repo/releases/$Version/download/tonight-windows-x86_64.exe" -OutFile "$Exe.new"
+
+Stop-Process -Name 'tonight' -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 500
+Move-Item -Force "$Exe.new" $Exe
 
 $RunKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 Set-ItemProperty -Path $RunKey -Name 'tonight' -Value "`"$Exe`" --open"
