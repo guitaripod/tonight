@@ -10,6 +10,7 @@ const LR: f64 = 0.22;
 
 fn dims(c: &Candidate) -> Vec<String> {
     let mut out: Vec<String> = c.meta.genres.iter().map(|g| format!("genre:{g}")).collect();
+    out.extend(c.meta.tags.iter().take(8).map(|t| format!("tag:{t}")));
     out.extend(
         c.meta
             .categories

@@ -1,4 +1,5 @@
 use crate::db::{now, Db};
+use crate::engine::conditions;
 use crate::engine::{load, score};
 use crate::model::Candidate;
 use anyhow::Result;
@@ -48,6 +49,36 @@ pub const SHELVES: &[ShelfDef] = &[
         question: "Co-op, split-screen, or something to watch.",
     },
     ShelfDef {
+        id: "quiet",
+        title: "Plays under a podcast",
+        question: "Nothing in it needs the sound. Put something else on.",
+    },
+    ShelfDef {
+        id: "pausable",
+        title: "Drop it any time",
+        question: "Saves anywhere, pauses cleanly, forgives an interruption.",
+    },
+    ShelfDef {
+        id: "couch",
+        title: "Couch and controller",
+        question: "Made for a gamepad and a big screen.",
+    },
+    ShelfDef {
+        id: "offline",
+        title: "No internet needed",
+        question: "Works with the router unplugged.",
+    },
+    ShelfDef {
+        id: "gentle",
+        title: "Safe before bed",
+        question: "Nothing frightening, nothing loud.",
+    },
+    ShelfDef {
+        id: "deck",
+        title: "Deck verified",
+        question: "Valve tested these on the Steam Deck and they passed.",
+    },
+    ShelfDef {
         id: "ghosts",
         title: "Ghosts",
         question: "Three years or older, and you have never met them.",
@@ -86,6 +117,7 @@ pub struct ShelfItem {
     pub amnesty: bool,
     pub pinned: bool,
     pub genres: Vec<String>,
+    pub tags: Vec<String>,
     pub metacritic: i64,
     pub release_year: i64,
     pub short_desc: String,
@@ -117,10 +149,38 @@ fn item(c: &Candidate, detail: String) -> ShelfItem {
         amnesty: c.prefs.amnesty,
         pinned: c.prefs.pinned,
         genres: c.meta.genres.clone(),
+        tags: c.meta.tags.iter().take(4).cloned().collect(),
         metacritic: c.meta.metacritic,
         release_year: c.meta.release_year,
         short_desc: c.meta.short_desc.clone(),
     }
+}
+
+/// A shelf ranked by how well each game meets one condition. Installed games
+/// come first within a band of equal fit, since they are the ones you can start.
+fn by_condition(
+    live: &[&&Candidate],
+    id: &str,
+    floor: f64,
+    extra: impl Fn(&Candidate) -> bool,
+) -> Vec<ShelfItem> {
+    let mut v: Vec<(f64, &Candidate, String)> = live
+        .iter()
+        .filter(|c| extra(c))
+        .filter_map(|c| {
+            conditions::evaluate(c, id)
+                .filter(|f| f.value >= floor)
+                .map(|f| (f.value, **c, f.text))
+        })
+        .collect();
+    v.sort_by(|a, b| {
+        let band = |x: f64| (x * 5.0).round() as i64;
+        band(b.0)
+            .cmp(&band(a.0))
+            .then(b.1.game.installed.cmp(&a.1.game.installed))
+            .then(b.1.meta.metacritic.cmp(&a.1.meta.metacritic))
+    });
+    v.into_iter().map(|(_, c, text)| item(c, text)).collect()
 }
 
 pub fn shelf(db: &Db, id: &str, limit: usize) -> Result<Vec<ShelfItem>> {
@@ -280,6 +340,21 @@ pub fn shelf(db: &Db, id: &str, limit: usize) -> Result<Vec<ShelfItem>> {
                 })
                 .collect()
         }
+        "quiet" => by_condition(&live, "quiet", 0.62, |_| true),
+        "pausable" => by_condition(&live, "interrupt", 0.78, |_| true),
+        "couch" => by_condition(&live, "couch", 0.85, |c| {
+            c.shape.controller.confidence > 0.4
+        }),
+        "offline" => by_condition(&live, "offline", 0.9, |c| c.game.installed),
+        "gentle" => by_condition(&live, "gentle", 0.85, |c| c.shape.chill >= 0.55),
+        "deck" => {
+            let mut v: Vec<&&Candidate> =
+                live.iter().copied().filter(|c| c.meta.deck == 4).collect();
+            v.sort_by_key(|c| (std::cmp::Reverse(c.game.installed), -c.meta.metacritic));
+            v.into_iter()
+                .map(|c| item(c, "Deck verified".to_string()))
+                .collect()
+        }
         "ghosts" => {
             let mut v: Vec<&&Candidate> = live
                 .iter()
@@ -390,6 +465,7 @@ pub fn search(db: &Db, q: &str, limit: usize) -> Result<Vec<ShelfItem>> {
                 .meta
                 .genres
                 .iter()
+                .chain(c.meta.tags.iter())
                 .any(|g| g.to_ascii_lowercase().contains(&needle))
                 || c.shape.archetype.contains(&needle)
             {

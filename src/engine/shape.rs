@@ -1,5 +1,7 @@
+use crate::engine::signals::{self, Axis, Trait};
 use crate::model::{Game, Meta};
 use serde::Serialize;
+use std::collections::HashMap;
 
 /// The physical and emotional shape of a play session, derived from storefront
 /// metadata. Every number is on 0..1 except the minute/hour fields.
@@ -13,10 +15,25 @@ pub struct Shape {
     pub story: f64,
     pub social: f64,
     pub chill: f64,
+    pub sound: Trait,
+    pub pause: Trait,
+    pub scare: Trait,
+    pub online: Trait,
+    pub controller: Trait,
+    pub couch: Trait,
     pub commitment: f64,
     pub confidence: f64,
     pub session_label: String,
     pub archetype: String,
+}
+
+/// What this player has told tonight about one game, which outranks any guess.
+#[derive(Debug, Default, Clone)]
+pub struct Personal<'a> {
+    pub session_override: Option<i64>,
+    pub observed_session: Option<i64>,
+    pub traits: Option<&'a HashMap<String, f64>>,
+    pub quiet_worked: i64,
 }
 
 impl Default for Shape {
@@ -30,6 +47,12 @@ impl Default for Shape {
             story: 0.4,
             social: 0.2,
             chill: 0.4,
+            sound: Trait::guess(0.55),
+            pause: Trait::guess(0.6),
+            scare: Trait::guess(0.1),
+            online: Trait::guess(0.3),
+            controller: Trait::guess(0.5),
+            couch: Trait::guess(0.2),
             commitment: 0.5,
             confidence: 0.1,
             session_label: "an hour or so".into(),
@@ -294,6 +317,18 @@ fn keyword_profiles() -> &'static [(&'static str, Profile)] {
             p("match-based", 50, 25, 300.0, 0.75, 0.7, 0.1, 0.8, 0.02, 0.5),
         ),
         (
+            "first-person shooter",
+            p("shooter", 55, 6, 12.0, 0.82, 0.35, 0.4, 0.3, 0.1, 0.4),
+        ),
+        (
+            "fps",
+            p("shooter", 55, 6, 12.0, 0.82, 0.35, 0.4, 0.3, 0.1, 0.4),
+        ),
+        (
+            "third-person shooter",
+            p("shooter", 55, 6, 12.0, 0.78, 0.35, 0.4, 0.3, 0.12, 0.4),
+        ),
+        (
             "stealth",
             p("stealth", 65, 12, 18.0, 0.4, 0.75, 0.55, 0.05, 0.1, 0.6),
         ),
@@ -513,21 +548,133 @@ fn keyword_profiles() -> &'static [(&'static str, Profile)] {
 }
 
 fn genre_profile(genre: &str) -> Option<Profile> {
-    Some(match genre {
-        "Massively Multiplayer" => p("MMO", 120, 30, 600.0, 0.5, 0.55, 0.3, 0.9, 0.2, 0.95),
-        "Strategy" => p("strategy", 90, 20, 40.0, 0.3, 0.9, 0.3, 0.2, 0.25, 0.75),
-        "RPG" => p("RPG", 90, 20, 45.0, 0.45, 0.65, 0.85, 0.15, 0.3, 0.8),
-        "Simulation" => p("simulation", 80, 15, 35.0, 0.25, 0.7, 0.2, 0.1, 0.6, 0.7),
-        "Sports" => p("sports", 40, 6, 30.0, 0.75, 0.4, 0.1, 0.5, 0.25, 0.25),
-        "Racing" => p("racing", 35, 4, 18.0, 0.9, 0.35, 0.15, 0.35, 0.25, 0.2),
-        "Action" => p("action", 50, 8, 18.0, 0.85, 0.4, 0.4, 0.25, 0.15, 0.4),
-        "Adventure" => p("adventure", 65, 10, 15.0, 0.4, 0.5, 0.85, 0.08, 0.5, 0.5),
-        "Casual" => p("casual", 30, 2, 8.0, 0.3, 0.3, 0.15, 0.1, 0.85, 0.15),
-        "Indie" => p("indie", 45, 6, 12.0, 0.5, 0.5, 0.45, 0.1, 0.45, 0.35),
-        "Free to Play" => p("free-to-play", 45, 8, 200.0, 0.7, 0.5, 0.15, 0.7, 0.2, 0.5),
-        "Early Access" => p("early access", 60, 12, 25.0, 0.5, 0.6, 0.3, 0.3, 0.35, 0.55),
+    Some(match genre.to_ascii_lowercase().as_str() {
+        "massively multiplayer" => p("MMO", 120, 30, 600.0, 0.5, 0.55, 0.3, 0.9, 0.2, 0.95),
+        "strategy" => p("strategy", 90, 20, 40.0, 0.3, 0.9, 0.3, 0.2, 0.25, 0.75),
+        "rpg" => p("RPG", 90, 20, 45.0, 0.45, 0.65, 0.85, 0.15, 0.3, 0.8),
+        "simulation" => p("simulation", 80, 15, 35.0, 0.25, 0.7, 0.2, 0.1, 0.6, 0.7),
+        "sports" => p("sports", 40, 6, 30.0, 0.75, 0.4, 0.1, 0.5, 0.25, 0.25),
+        "racing" => p("racing", 35, 4, 18.0, 0.9, 0.35, 0.15, 0.35, 0.25, 0.2),
+        "action" => p("action", 50, 8, 18.0, 0.85, 0.4, 0.4, 0.25, 0.15, 0.4),
+        "adventure" => p("adventure", 65, 10, 15.0, 0.4, 0.5, 0.85, 0.08, 0.5, 0.5),
+        "casual" => p("casual", 30, 2, 8.0, 0.3, 0.3, 0.15, 0.1, 0.85, 0.15),
+        "indie" => p("indie", 45, 6, 12.0, 0.5, 0.5, 0.45, 0.1, 0.45, 0.35),
+        "free to play" => p("free-to-play", 45, 8, 200.0, 0.7, 0.5, 0.15, 0.7, 0.2, 0.5),
+        "early access" => p("early access", 60, 12, 25.0, 0.5, 0.6, 0.3, 0.3, 0.35, 0.55),
         _ => return None,
     })
+}
+
+/// Whether `needle` appears in `hay` as a whole word (a plural "s" is allowed),
+/// so "idle" is not found inside "bridle" and "golf" not inside "golfing".
+fn contains_word(hay: &str, needle: &str) -> bool {
+    let mut from = 0;
+    while let Some(pos) = hay[from..].find(needle) {
+        let start = from + pos;
+        let end = start + needle.len();
+        let before_ok = !hay[..start]
+            .chars()
+            .next_back()
+            .is_some_and(char::is_alphanumeric);
+        let mut after = hay[end..].chars();
+        let after_ok = match after.next() {
+            None => true,
+            Some(c) if !c.is_alphanumeric() => true,
+            Some('s') => !after.next().is_some_and(char::is_alphanumeric),
+            Some(_) => false,
+        };
+        if before_ok && after_ok {
+            return true;
+        }
+        from = end;
+    }
+    false
+}
+
+/// The traits an archetype implies before any tag speaks: the starting point that
+/// real evidence then confirms or overrules.
+fn archetype_prior(archetype: &str) -> &'static [(Axis, f64)] {
+    use Axis::{Controller, Couch, Online, Pause, Scare, Sound};
+    match archetype {
+        "grand strategy" | "4X" | "city builder" | "colony sim" | "management sim" | "tycoon"
+        | "tactics" | "turn-based" | "strategy" | "tower defense" | "idle" => {
+            &[(Sound, 0.14), (Pause, 0.9), (Controller, 0.3)]
+        }
+        "puzzle" | "card game" => &[(Sound, 0.2), (Pause, 0.95)],
+        "visual novel" => &[(Sound, 0.3), (Pause, 1.0)],
+        "walking sim" => &[(Sound, 0.8), (Pause, 0.9)],
+        "adventure" | "narrative" => &[(Sound, 0.58), (Pause, 0.8)],
+        "horror" => &[(Sound, 0.92), (Scare, 0.9), (Pause, 0.45)],
+        "cozy" | "crafting" | "sandbox" => &[(Sound, 0.4), (Pause, 0.85), (Scare, 0.02)],
+        "run-based" => &[(Sound, 0.3), (Pause, 0.5)],
+        "arcade" | "platformer" => &[(Sound, 0.5), (Pause, 0.45), (Controller, 0.85)],
+        "rhythm" => &[(Sound, 1.0), (Pause, 0.25)],
+        "racing" => &[(Sound, 0.76), (Controller, 0.9), (Couch, 0.45)],
+        "stealth" => &[(Sound, 0.9), (Pause, 0.6)],
+        "hard action" => &[(Sound, 0.75), (Pause, 0.25)],
+        "match-based" | "MMO" => &[(Sound, 0.8), (Pause, 0.06), (Online, 0.96)],
+        "RTS" => &[(Sound, 0.32), (Pause, 0.5), (Controller, 0.15)],
+        "fighting" => &[
+            (Sound, 0.66),
+            (Pause, 0.3),
+            (Couch, 0.75),
+            (Controller, 0.9),
+        ],
+        "sports" => &[(Couch, 0.7), (Controller, 0.88)],
+        "open world" | "RPG" | "dungeon crawler" | "immersive sim" => {
+            &[(Sound, 0.6), (Pause, 0.65), (Controller, 0.7)]
+        }
+        "action" => &[(Sound, 0.62), (Pause, 0.5), (Controller, 0.7)],
+        "survival" => &[(Sound, 0.6), (Pause, 0.6)],
+        "shooter" => &[(Sound, 0.78), (Pause, 0.5), (Controller, 0.72)],
+        _ => &[],
+    }
+}
+
+/// Settles the five feel axes and the six room-demand traits from the evidence a
+/// game carries. The older genre profile is kept as a prior for the feel axes.
+fn apply_signals(s: &mut Shape, meta: &Meta, personal: &Personal) {
+    let mut ballot = signals::collect(meta);
+    let archetype = s.archetype.clone();
+    for (axis, value) in archetype_prior(&archetype) {
+        ballot.cast(*axis, *value, 0.8, &archetype);
+    }
+
+    s.pace = ballot.settle(Axis::Pace, s.pace, 1.4).value;
+    s.brain = ballot.settle(Axis::Brain, s.brain, 1.4).value;
+    s.story = ballot.settle(Axis::Story, s.story, 1.4).value;
+    s.social = ballot.settle(Axis::Social, s.social, 1.4).value;
+    s.chill = ballot.settle(Axis::Chill, s.chill, 1.4).value;
+
+    signals::voiced_story_vote(&mut ballot, meta, s.story);
+
+    s.sound = ballot.settle(Axis::Sound, 0.55, 0.3);
+    s.pause = ballot.settle(Axis::Pause, 0.6, 0.3);
+    s.scare = ballot.settle(Axis::Scare, 0.08, 0.3);
+    s.online = ballot.settle(Axis::Online, 0.3, 0.3);
+    s.controller = ballot.settle(Axis::Controller, 0.5, 0.3);
+    s.couch = ballot.settle(Axis::Couch, 0.18, 0.3);
+
+    if personal.quiet_worked > 0 && s.sound.value > 0.05 {
+        let k = (personal.quiet_worked as f64).min(3.0);
+        s.sound.value *= 1.0 - 0.22 * k;
+        s.sound.confidence = (s.sound.confidence + 0.2 * k).min(1.0);
+        s.sound
+            .because
+            .insert(0, "it worked for you with sound off".into());
+        s.sound.because.truncate(3);
+    }
+
+    if let Some(overrides) = personal.traits {
+        let pin = |slot: &mut Trait, key: &str| {
+            if let Some(v) = overrides.get(key) {
+                *slot = Trait::fixed(v.clamp(0.0, 1.0), "you set this");
+            }
+        };
+        pin(&mut s.sound, "sound");
+        pin(&mut s.pause, "pause");
+        pin(&mut s.scare, "scare");
+    }
 }
 
 fn blend(into: &mut Shape, prof: &Profile, w: f64) {
@@ -548,12 +695,9 @@ fn blend(into: &mut Shape, prof: &Profile, w: f64) {
 
 /// Builds a session shape from metadata, then lets the player's own recorded
 /// behaviour override the guess where evidence exists.
-pub fn derive(
-    game: &Game,
-    meta: &Meta,
-    session_override: Option<i64>,
-    observed: Option<i64>,
-) -> Shape {
+pub fn derive(game: &Game, meta: &Meta, personal: &Personal) -> Shape {
+    let session_override = personal.session_override;
+    let observed = personal.observed_session;
     let mut s = Shape::default();
     let mut evidence = 0.0f64;
 
@@ -569,22 +713,27 @@ pub fn derive(
         }
     }
 
-    let hay = format!(
+    let tag_hay = meta.tags.join(" ").to_ascii_lowercase();
+    let text_hay = format!(
         "{} {} {}",
         game.name.to_ascii_lowercase(),
         meta.short_desc.to_ascii_lowercase(),
         meta.genres.join(" ").to_ascii_lowercase()
     );
     let mut keyword_hits = 0;
-    for (kw, prof) in keyword_profiles() {
-        if hay.contains(kw) {
-            let w = if keyword_hits == 0 { 0.7 } else { 0.25 };
-            blend(&mut s, prof, w);
-            keyword_hits += 1;
-            evidence += 0.3;
-            if keyword_hits >= 3 {
-                break;
-            }
+    let by_tags = keyword_profiles()
+        .iter()
+        .filter(|(kw, _)| contains_word(&tag_hay, kw));
+    let by_text = keyword_profiles()
+        .iter()
+        .filter(|(kw, _)| !contains_word(&tag_hay, kw) && contains_word(&text_hay, kw));
+    for (_, prof) in by_tags.chain(by_text) {
+        let w = if keyword_hits == 0 { 0.7 } else { 0.25 };
+        blend(&mut s, prof, w);
+        keyword_hits += 1;
+        evidence += 0.3;
+        if keyword_hits >= 3 {
+            break;
         }
     }
 
@@ -612,6 +761,8 @@ pub fn derive(
         s.completion_hours *= 1.1;
     }
 
+    apply_signals(&mut s, meta, personal);
+
     if let Some(m) = session_override.filter(|m| *m > 0) {
         s.session_minutes = m;
         s.confidence = 1.0;
@@ -633,6 +784,7 @@ pub fn derive(
     }
 
     s.session_minutes = s.session_minutes.clamp(10, 240);
+    evidence += 0.12 * meta.tags.len().min(8) as f64;
     s.confidence = (evidence / 1.6).clamp(0.05, 1.0);
     s.session_label = humanize(s.session_minutes);
     s
@@ -683,8 +835,7 @@ mod tests {
                 &["Action", "Indie"],
                 "A rogue-LIKE dungeon crawler with fast runs",
             ),
-            None,
-            None,
+            &Personal::default(),
         );
         assert!(s.session_minutes <= 45, "got {}", s.session_minutes);
         assert_eq!(s.archetype, "run-based");
@@ -698,8 +849,7 @@ mod tests {
                 &["Strategy", "Simulation"],
                 "A grand strategy role-playing game",
             ),
-            None,
-            None,
+            &Personal::default(),
         );
         assert!(s.session_minutes >= 100, "got {}", s.session_minutes);
         assert!(s.brain > 0.8);
@@ -707,7 +857,14 @@ mod tests {
 
     #[test]
     fn observed_sessions_beat_the_guess() {
-        let s = derive(&game("Whatever"), &meta(&["Action"], ""), None, Some(20));
+        let s = derive(
+            &game("Whatever"),
+            &meta(&["Action"], ""),
+            &Personal {
+                observed_session: Some(20),
+                ..Default::default()
+            },
+        );
         assert!(s.session_minutes < 40, "got {}", s.session_minutes);
     }
 
@@ -716,8 +873,11 @@ mod tests {
         let s = derive(
             &game("Whatever"),
             &meta(&["Strategy"], "grand strategy"),
-            Some(25),
-            Some(200),
+            &Personal {
+                session_override: Some(25),
+                observed_session: Some(200),
+                ..Default::default()
+            },
         );
         assert_eq!(s.session_minutes, 25);
         assert_eq!(s.confidence, 1.0);
@@ -728,8 +888,7 @@ mod tests {
         let s = derive(
             &game("Portal"),
             &meta(&["Action"], "puzzle game"),
-            None,
-            None,
+            &Personal::default(),
         );
         assert!(s.social < 0.2, "got {}", s.social);
     }

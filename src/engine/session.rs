@@ -16,6 +16,7 @@ pub struct Session {
     pub budget: i64,
     pub mood: String,
     pub appetite: String,
+    pub conditions: Vec<String>,
     pub session_label: String,
     pub launch_url: String,
     pub can_launch_here: bool,
@@ -33,14 +34,21 @@ pub fn start(
     budget: i64,
     mood: &str,
     appetite: &str,
+    conditions: &[String],
 ) -> Result<Session> {
     close_stale(db)?;
     let ts = now();
+    let conditions = serde_json::to_string(
+        &crate::engine::conditions::normalize(conditions)
+            .iter()
+            .map(|c| c.id)
+            .collect::<Vec<_>>(),
+    )?;
     let id = db.with(|c| {
         c.execute(
-            "INSERT INTO sessions(appid,started_at,budget,mood,appetite,hand_id)
-             VALUES(?1,?2,?3,?4,?5,?6)",
-            params![appid, ts, budget, mood, appetite, hand_id],
+            "INSERT INTO sessions(appid,started_at,budget,mood,appetite,hand_id,conditions)
+             VALUES(?1,?2,?3,?4,?5,?6,?7)",
+            params![appid, ts, budget, mood, appetite, hand_id, conditions],
         )?;
         Ok(c.last_insert_rowid())
     })?;
@@ -70,7 +78,7 @@ pub fn current(db: &Db) -> Result<Option<Session>> {
     let allow_launch = db.setting_bool("allow_launch", false);
     let row = db.with(|c| {
         Ok(c.query_row(
-            "SELECT id, appid, started_at, budget, mood, appetite, first_impression
+            "SELECT id, appid, started_at, budget, mood, appetite, first_impression, conditions
              FROM sessions WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1",
             [],
             |r| {
@@ -82,12 +90,13 @@ pub fn current(db: &Db) -> Result<Option<Session>> {
                     r.get::<_, Option<String>>(4)?.unwrap_or_default(),
                     r.get::<_, Option<String>>(5)?.unwrap_or_default(),
                     r.get::<_, Option<String>>(6)?,
+                    r.get::<_, Option<String>>(7)?.unwrap_or_default(),
                 ))
             },
         )
         .optional()?)
     })?;
-    let Some((id, appid, started_at, budget, mood, appetite, fi_done)) = row else {
+    let Some((id, appid, started_at, budget, mood, appetite, fi_done, conditions)) = row else {
         return Ok(None);
     };
     let cand = load::one(db, appid)?;
@@ -105,6 +114,7 @@ pub fn current(db: &Db) -> Result<Option<Session>> {
         budget,
         mood,
         appetite,
+        conditions: serde_json::from_str(&conditions).unwrap_or_default(),
         session_label: cand
             .map(|c| c.shape.session_label)
             .unwrap_or_else(|| "an hour or so".into()),
@@ -124,20 +134,35 @@ pub fn first_impression(db: &Db, id: i64, answer: &str) -> Result<()> {
     Ok(())
 }
 
+/// Why a session ended badly. The reason matters more than the bail: "I could
+/// not hear it" says nothing about whether the game is good.
+pub const BAIL_REASONS: &[(&str, &str)] = &[
+    ("sound", "Needed the sound"),
+    ("long", "Too long for tonight"),
+    ("mood", "Wrong mood"),
+    ("bad", "Just not good"),
+];
+
 /// Ends a session with a verdict. Bailing out is a first-class, guilt-free outcome
-/// and teaches the model just as much as loving it does.
-pub fn end(db: &Db, id: i64, verdict: &str) -> Result<i64> {
-    let appid = db.with(|c| {
-        let appid: i64 =
-            c.query_row("SELECT appid FROM sessions WHERE id=?1", params![id], |r| {
-                r.get(0)
-            })?;
-        c.execute(
-            "UPDATE sessions SET ended_at=?2, verdict=?3 WHERE id=?1 AND ended_at IS NULL",
-            params![id, now(), verdict],
+/// and teaches the model just as much as loving it does, provided it knows why.
+pub fn end(db: &Db, id: i64, verdict: &str, reason: Option<&str>) -> Result<i64> {
+    let reason = reason.filter(|r| BAIL_REASONS.iter().any(|(k, _)| k == r));
+    let (appid, conditions) = db.with(|c| {
+        let row: (i64, Option<String>) = c.query_row(
+            "SELECT appid, conditions FROM sessions WHERE id=?1",
+            params![id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
-        Ok(appid)
+        c.execute(
+            "UPDATE sessions SET ended_at=?2, verdict=?3, bail_reason=?4
+             WHERE id=?1 AND ended_at IS NULL",
+            params![id, now(), verdict, reason],
+        )?;
+        Ok(row)
     })?;
+    let conditions: Vec<String> = conditions
+        .and_then(|j| serde_json::from_str(&j).ok())
+        .unwrap_or_default();
     let seconds = db.with(|c| {
         Ok(c.query_row(
             "SELECT COALESCE(ended_at,0) - started_at FROM sessions WHERE id=?1",
@@ -147,7 +172,23 @@ pub fn end(db: &Db, id: i64, verdict: &str) -> Result<i64> {
         .unwrap_or(0))
     })?;
     db.log_event(appid, verdict, None, None, None, Some(seconds))?;
-    taste::nudge(db, appid, taste::signal_for(verdict))?;
+
+    let mut signal = taste::signal_for(verdict);
+    if verdict == "bounced" {
+        if let Some(why) = reason {
+            db.log_note(appid, "bail_reason", why)?;
+            if why != "bad" {
+                signal = -0.1;
+            }
+            if why == "sound" {
+                crate::engine::overrides::set(db, appid, "sound", Some(0.85))?;
+            }
+        }
+    }
+    if matches!(verdict, "loved" | "kept" | "fine") && conditions.iter().any(|c| c == "quiet") {
+        db.log_event(appid, "quiet_worked", None, None, None, None)?;
+    }
+    taste::nudge(db, appid, signal)?;
     if verdict == "never" {
         crate::engine::reckoning::set_amnesty(db, appid, true)?;
     }
@@ -175,6 +216,8 @@ pub struct HistoryRow {
     pub started_at: i64,
     pub minutes: i64,
     pub verdict: String,
+    pub reason: Option<String>,
+    pub conditions: Vec<String>,
 }
 
 pub fn recent(db: &Db, limit: usize) -> Result<Vec<HistoryRow>> {
@@ -182,7 +225,7 @@ pub fn recent(db: &Db, limit: usize) -> Result<Vec<HistoryRow>> {
         let mut st = c.prepare(
             "SELECT s.appid, COALESCE(NULLIF(g.name,''), m.name, 'App ' || s.appid), s.started_at,
                     (COALESCE(s.ended_at, s.started_at) - s.started_at)/60,
-                    COALESCE(s.verdict,'open')
+                    COALESCE(s.verdict,'open'), s.bail_reason, s.conditions
              FROM sessions s
              LEFT JOIN games g ON g.appid=s.appid
              LEFT JOIN meta  m ON m.appid=s.appid
@@ -195,6 +238,11 @@ pub fn recent(db: &Db, limit: usize) -> Result<Vec<HistoryRow>> {
                 started_at: r.get(2)?,
                 minutes: r.get(3)?,
                 verdict: r.get(4)?,
+                reason: r.get(5)?,
+                conditions: r
+                    .get::<_, Option<String>>(6)?
+                    .and_then(|j| serde_json::from_str(&j).ok())
+                    .unwrap_or_default(),
             })
         })?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)

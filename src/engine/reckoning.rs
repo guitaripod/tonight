@@ -1,4 +1,5 @@
 use crate::db::{now, Db};
+use crate::engine::conditions;
 use crate::engine::{load, score};
 use crate::model::Candidate;
 use anyhow::Result;
@@ -39,6 +40,41 @@ pub struct Reckoning {
     pub top_archetypes: Vec<(String, i64)>,
     pub verdict: String,
     pub coverage_note: Option<String>,
+    pub readiness: Vec<Readiness>,
+    pub bail_reasons: Vec<(String, i64)>,
+}
+
+/// How many of your games survive one circumstance. "Fourteen of 325 work with
+/// the sound off" is the kind of fact a library never tells you about itself.
+#[derive(Debug, Serialize)]
+pub struct Readiness {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub works: i64,
+    pub total: i64,
+}
+
+fn readiness(real: &[&&Candidate]) -> Vec<Readiness> {
+    conditions::CONDITIONS
+        .iter()
+        .filter(|d| d.id != "installed")
+        .map(|d| {
+            let works = real
+                .iter()
+                .filter(|c| {
+                    conditions::evaluate(c, d.id)
+                        .map(|f| f.value >= 0.6)
+                        .unwrap_or(false)
+                })
+                .count() as i64;
+            Readiness {
+                id: d.id,
+                label: d.label,
+                works,
+                total: real.len() as i64,
+            }
+        })
+        .collect()
 }
 
 fn years_phrase(y: f64) -> String {
@@ -218,6 +254,15 @@ pub fn compute(db: &Db) -> Result<Reckoning> {
     };
 
     let coverage_note = coverage_note(db, owned, untouched);
+    let readiness = readiness(&real);
+    let bail_reasons = db.with(|c| {
+        let mut st = c.prepare(
+            "SELECT bail_reason, COUNT(*) FROM sessions
+             WHERE bail_reason IS NOT NULL GROUP BY bail_reason ORDER BY COUNT(*) DESC",
+        )?;
+        let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    })?;
 
     Ok(Reckoning {
         owned,
@@ -249,6 +294,8 @@ pub fn compute(db: &Db) -> Result<Reckoning> {
         top_archetypes,
         verdict,
         coverage_note,
+        readiness,
+        bail_reasons,
     })
 }
 

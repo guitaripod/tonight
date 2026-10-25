@@ -118,8 +118,26 @@ fn friendly(addr: &std::net::SocketAddr) -> String {
     }
 }
 
+/// Resolves on Ctrl-C everywhere, and on SIGTERM where it exists, so that
+/// `docker stop` and systemd end the server cleanly instead of timing out.
 async fn shutdown() {
-    let _ = tokio::signal::ctrl_c().await;
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        match signal(SignalKind::terminate()) {
+            Ok(mut term) => tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = term.recv() => {}
+            },
+            Err(_) => {
+                let _ = tokio::signal::ctrl_c().await;
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
     println!("\n  Goodnight.\n");
 }
 

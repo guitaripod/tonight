@@ -5,7 +5,6 @@ pub const MOODS: &[(&str, &str, &str)] = &[
     ("mellow", "Mellow", "unwind, no pressure"),
     ("sharp", "Sharp", "give me something to chew"),
     ("restless", "Restless", "I need stimulation now"),
-    ("social", "Social", "someone else is here"),
 ];
 
 pub const APPETITES: &[(&str, &str, &str)] = &[
@@ -44,6 +43,14 @@ pub struct Meta {
     pub short_desc: String,
     pub genres: Vec<String>,
     pub categories: Vec<String>,
+    pub tags: Vec<String>,
+    pub audio_langs: i64,
+    pub audio_full: i64,
+    pub subtitles: i64,
+    pub deck: i64,
+    pub deck_input: Option<String>,
+    pub needs_online: Option<bool>,
+    pub review_pct: i64,
     pub developers: Vec<String>,
     pub release_year: i64,
     pub metacritic: i64,
@@ -61,6 +68,7 @@ pub struct Prefs {
     pub session_override: Option<i64>,
     pub elo: f64,
     pub duels: i64,
+    pub traits: std::collections::HashMap<String, f64>,
 }
 
 /// Everything the engine needs about one game, assembled once per deal.
@@ -86,6 +94,7 @@ pub struct History {
     pub ach_unlocked: i64,
     pub ach_total: i64,
     pub observed_session_minutes: Option<i64>,
+    pub quiet_worked: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,6 +110,7 @@ pub enum Slot {
     SureThing,
     Unfinished,
     Stranger,
+    Thread,
     Wildcard,
     Rebound,
 }
@@ -111,6 +121,7 @@ impl Slot {
             Slot::SureThing => "The sure thing",
             Slot::Unfinished => "Unfinished business",
             Slot::Stranger => "The stranger",
+            Slot::Thread => "Where you left off",
             Slot::Wildcard => "The wildcard",
             Slot::Rebound => "The rebound",
         }
@@ -127,6 +138,7 @@ impl Slot {
                 "Bought, filed, forgotten. Tonight it gets one shot."
             }
             Slot::Stranger => "You looked at it once for a few minutes. That is not a trial.",
+            Slot::Thread => "You were in the middle of this. The thread is still warm.",
             Slot::Wildcard => "No argument for it except that it might be the one.",
             Slot::Rebound => "That one didn't take. Here's the next.",
         }
@@ -144,13 +156,18 @@ pub struct Card {
     pub verdict: String,
     pub caution: Option<String>,
     pub reasons: Vec<Reason>,
+    pub fits: Vec<crate::engine::conditions::Fit>,
+    pub parts: Vec<crate::engine::score::Part>,
+    pub gate: f64,
     pub session_label: String,
     pub session_minutes: i64,
     pub playtime_min: i64,
     pub last_played: i64,
     pub installed: bool,
     pub genres: Vec<String>,
+    pub tags: Vec<String>,
     pub metacritic: i64,
+    pub review_pct: i64,
     pub short_desc: String,
     pub achievements_total: i64,
     pub release_year: i64,
@@ -168,6 +185,10 @@ pub struct Hand {
     pub appetite: String,
     pub locked: bool,
     pub note: Option<String>,
+    pub conditions: Vec<String>,
+    pub viable: usize,
+    pub library: usize,
+    pub relaxed: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -178,6 +199,8 @@ pub struct DealRequest {
     pub mood: String,
     #[serde(default)]
     pub appetite: String,
+    #[serde(default)]
+    pub conditions: Vec<String>,
     #[serde(default)]
     pub exclude: Vec<i64>,
     #[serde(default)]

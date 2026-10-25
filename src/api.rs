@@ -1,5 +1,5 @@
 use crate::db::{now, Db};
-use crate::engine::{deal, load, reckoning, session, shelves, taste};
+use crate::engine::{conditions, deal, load, overrides, reckoning, session, shelves, taste};
 use crate::model::{DealRequest, APPETITES, BUDGETS, MOODS};
 use crate::steam::images;
 use crate::sync::Syncer;
@@ -51,6 +51,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sync/cancel", post(cancel_sync))
         .route("/api/sync/stream", get(sync_stream))
         .route("/api/deal", post(deal_handler))
+        .route("/api/fit", post(fit_handler))
         .route("/api/hand/{id}", get(hand_handler))
         .route("/api/hand/{id}/pass", post(pass_handler))
         .route("/api/rebound", post(rebound_handler))
@@ -68,6 +69,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/pin", post(pin_handler))
         .route("/api/game/{appid}", get(game_handler))
         .route("/api/game/{appid}/session-length", post(session_length))
+        .route("/api/game/{appid}/trait", post(trait_handler))
         .route("/api/shelves", get(shelves_handler))
         .route("/api/shelf/{id}", get(shelf_handler))
         .route("/api/search", get(search_handler))
@@ -112,6 +114,8 @@ async fn state_handler(State(st): State<AppState>) -> ApiResult<Json<Value>> {
         "moods": MOODS.iter().map(|(id,label,hint)| json!({"id":id,"label":label,"hint":hint})).collect::<Vec<_>>(),
         "appetites": APPETITES.iter().map(|(id,label,hint)| json!({"id":id,"label":label,"hint":hint})).collect::<Vec<_>>(),
         "budgets": BUDGETS.iter().map(|(m,label)| json!({"minutes":m,"label":label})).collect::<Vec<_>>(),
+        "conditions": conditions::CONDITIONS,
+        "bail_reasons": session::BAIL_REASONS.iter().map(|(id,label)| json!({"id":id,"label":label})).collect::<Vec<_>>(),
         "version": env!("CARGO_PKG_VERSION"),
     })))
 }
@@ -234,6 +238,13 @@ async fn deal_handler(
     Ok(Json(serde_json::to_value(hand)?))
 }
 
+async fn fit_handler(
+    State(st): State<AppState>,
+    Json(req): Json<DealRequest>,
+) -> ApiResult<Json<Value>> {
+    Ok(Json(serde_json::to_value(deal::preview(&st.db, &req)?)?))
+}
+
 async fn hand_handler(
     State(st): State<AppState>,
     Path(id): Path<String>,
@@ -256,23 +267,11 @@ async fn pass_handler(
     )?)?))
 }
 
-#[derive(Deserialize)]
-struct ReboundBody {
-    #[serde(default)]
-    budget: i64,
-    #[serde(default)]
-    mood: String,
-    #[serde(default)]
-    appetite: String,
-    #[serde(default)]
-    exclude: Vec<i64>,
-}
-
 async fn rebound_handler(
     State(st): State<AppState>,
-    Json(b): Json<ReboundBody>,
+    Json(req): Json<DealRequest>,
 ) -> ApiResult<Json<Value>> {
-    let card = deal::rebound(&st.db, b.budget, &b.mood, &b.appetite, b.exclude)?;
+    let card = deal::rebound(&st.db, &req)?;
     Ok(Json(serde_json::to_value(card)?))
 }
 
@@ -291,6 +290,8 @@ struct StartBody {
     mood: String,
     #[serde(default)]
     appetite: String,
+    #[serde(default)]
+    conditions: Vec<String>,
 }
 
 async fn session_start(
@@ -304,6 +305,7 @@ async fn session_start(
         b.budget,
         &b.mood,
         &b.appetite,
+        &b.conditions,
     )?;
     Ok(Json(json!({ "session": s })))
 }
@@ -326,10 +328,12 @@ async fn session_impression(
 struct EndBody {
     id: i64,
     verdict: String,
+    #[serde(default)]
+    reason: Option<String>,
 }
 
 async fn session_end(State(st): State<AppState>, Json(b): Json<EndBody>) -> ApiResult<Json<Value>> {
-    let appid = session::end(&st.db, b.id, &b.verdict)?;
+    let appid = session::end(&st.db, b.id, &b.verdict, b.reason.as_deref())?;
     Ok(Json(json!({"ok": true, "appid": appid})))
 }
 
@@ -445,10 +449,16 @@ async fn game_handler(
 ) -> ApiResult<Json<Value>> {
     let c = load::one(&st.db, appid)?
         .ok_or_else(|| ApiError(anyhow::anyhow!("no such game in your library")))?;
+    let fits: Vec<_> = conditions::CONDITIONS
+        .iter()
+        .filter_map(|def| conditions::evaluate(&c, def.id))
+        .collect();
     Ok(Json(json!({
         "game": c.game,
         "meta": c.meta,
         "shape": c.shape,
+        "fits": fits,
+        "overrides": c.prefs.traits,
         "history": c.history,
         "amnesty": c.prefs.amnesty,
         "pinned": c.prefs.pinned,
@@ -477,6 +487,21 @@ async fn session_length(
         )?;
         Ok(())
     })?;
+    Ok(Json(json!({"ok": true})))
+}
+
+#[derive(Deserialize)]
+struct TraitBody {
+    name: String,
+    value: Option<f64>,
+}
+
+async fn trait_handler(
+    State(st): State<AppState>,
+    Path(appid): Path<i64>,
+    Json(b): Json<TraitBody>,
+) -> ApiResult<Json<Value>> {
+    overrides::set(&st.db, appid, &b.name, b.value)?;
     Ok(Json(json!({"ok": true})))
 }
 

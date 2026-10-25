@@ -25,11 +25,43 @@ fn json_strings(s: Option<String>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Joins two name lists without repeats, ignoring case, keeping `first`'s order.
+/// The storefront and the local client spell a few genres differently.
+fn union(first: Vec<String>, second: Vec<String>) -> Vec<String> {
+    let mut out = first;
+    for item in second {
+        if !out.iter().any(|x| x.eq_ignore_ascii_case(&item)) {
+            out.push(item);
+        }
+    }
+    out
+}
+
+fn trait_overrides(db: &Db) -> Result<HashMap<i64, HashMap<String, f64>>> {
+    db.with(|c| {
+        let mut st = c.prepare("SELECT appid, trait, value FROM overrides")?;
+        let rows = st.query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, f64>(2)?,
+            ))
+        })?;
+        let mut out: HashMap<i64, HashMap<String, f64>> = HashMap::new();
+        for row in rows {
+            let (appid, name, value) = row?;
+            out.entry(appid).or_default().insert(name, value);
+        }
+        Ok(out)
+    })
+}
+
 /// Loads the entire library into memory with metadata, preferences, personal
 /// history and derived shape attached. Cheap enough to redo on every deal.
 pub fn candidates(db: &Db) -> Result<Vec<Candidate>> {
     let history = history_map(db)?;
     let observed = observed_sessions(db)?;
+    let overrides = trait_overrides(db)?;
     db.with(|c| {
         let mut st = c.prepare(
             "SELECT g.appid, g.name, g.playtime_min, g.playtime_2w, g.last_played, g.installed,
@@ -38,7 +70,10 @@ pub fn candidates(db: &Db) -> Result<Vec<Candidate>> {
                     m.metacritic, m.recommendations, m.price_initial, m.currency,
                     m.achievements_total, m.fetched_at, m.name,
                     p.amnesty, p.pinned, p.session_minutes, p.elo, p.duels,
-                    a.unlocked, a.total
+                    a.unlocked, a.total,
+                    m.tags, m.l_genres, m.l_categories, m.l_metacritic, m.l_release_year,
+                    m.audio_langs, m.audio_full, m.subtitles, m.deck, m.deck_input,
+                    m.needs_online, m.review_pct
              FROM games g
              LEFT JOIN meta   m ON m.appid = g.appid
              LEFT JOIN prefs  p ON p.appid = g.appid
@@ -62,14 +97,35 @@ pub fn candidates(db: &Db) -> Result<Vec<Candidate>> {
                 installed: r.get::<_, i64>(5)? != 0,
                 size_bytes: r.get(6)?,
             };
+            let store_metacritic = r.get::<_, Option<i64>>(13)?.unwrap_or(0);
+            let store_year = r.get::<_, Option<i64>>(12)?.unwrap_or(0);
+            let local_metacritic = r.get::<_, Option<i64>>(30)?.unwrap_or(0);
+            let local_year = r.get::<_, Option<i64>>(31)?.unwrap_or(0);
+            let needs_online = r.get::<_, Option<i64>>(37)?.unwrap_or(-1);
             let meta = Meta {
                 kind: r.get::<_, Option<String>>(7)?.unwrap_or_default(),
                 short_desc: r.get::<_, Option<String>>(8)?.unwrap_or_default(),
-                genres: json_strings(r.get(9)?),
-                categories: json_strings(r.get(10)?),
+                genres: union(json_strings(r.get(9)?), json_strings(r.get(28)?)),
+                categories: union(json_strings(r.get(10)?), json_strings(r.get(29)?)),
+                tags: json_strings(r.get(27)?),
+                audio_langs: r.get::<_, Option<i64>>(32)?.unwrap_or(-1),
+                audio_full: r.get::<_, Option<i64>>(33)?.unwrap_or(-1),
+                subtitles: r.get::<_, Option<i64>>(34)?.unwrap_or(-1),
+                deck: r.get::<_, Option<i64>>(35)?.unwrap_or(0),
+                deck_input: r.get::<_, Option<String>>(36)?,
+                needs_online: (needs_online >= 0).then_some(needs_online > 0),
+                review_pct: r.get::<_, Option<i64>>(38)?.unwrap_or(0),
                 developers: json_strings(r.get(11)?),
-                release_year: r.get::<_, Option<i64>>(12)?.unwrap_or(0),
-                metacritic: r.get::<_, Option<i64>>(13)?.unwrap_or(0),
+                release_year: if store_year > 0 {
+                    store_year
+                } else {
+                    local_year
+                },
+                metacritic: if store_metacritic > 0 {
+                    store_metacritic
+                } else {
+                    local_metacritic
+                },
                 recommendations: r.get::<_, Option<i64>>(14)?.unwrap_or(0),
                 price_initial: r.get::<_, Option<i64>>(15)?.unwrap_or(0),
                 currency: r.get::<_, Option<String>>(16)?.unwrap_or_default(),
@@ -82,6 +138,7 @@ pub fn candidates(db: &Db) -> Result<Vec<Candidate>> {
                 session_override: r.get::<_, Option<i64>>(22)?,
                 elo: r.get::<_, Option<f64>>(23)?.unwrap_or(1500.0),
                 duels: r.get::<_, Option<i64>>(24)?.unwrap_or(0),
+                traits: overrides.get(&appid).cloned().unwrap_or_default(),
             };
             let ach = (
                 r.get::<_, Option<i64>>(25)?.unwrap_or(0),
@@ -104,8 +161,12 @@ pub fn candidates(db: &Db) -> Result<Vec<Candidate>> {
             let shape = shape::derive(
                 &game,
                 &meta,
-                prefs.session_override,
-                hist.observed_session_minutes,
+                &shape::Personal {
+                    session_override: prefs.session_override,
+                    observed_session: hist.observed_session_minutes,
+                    traits: Some(&prefs.traits),
+                    quiet_worked: hist.quiet_worked,
+                },
             );
             out.push(Candidate {
                 game,
@@ -180,6 +241,7 @@ fn history_map(db: &Db) -> Result<HashMap<i64, History>> {
                 }
                 "bounced" => h.bounces = count,
                 "loved" => h.loved = count,
+                "quiet_worked" => h.quiet_worked = count,
                 "dealt" => h.last_dealt = last,
                 _ => {}
             }
@@ -205,6 +267,8 @@ fn observed_sessions(db: &Db) -> Result<HashMap<i64, i64>> {
         let mut st = c.prepare(
             "SELECT appid, (ended_at - started_at)/60 AS mins FROM sessions
              WHERE ended_at IS NOT NULL AND ended_at > started_at
+               AND COALESCE(verdict,'') <> 'unknown'
+               AND (ended_at - started_at) <= 8 * 3600
              ORDER BY appid, mins",
         )?;
         let rows = st.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))?;

@@ -1,4 +1,5 @@
-use super::appinfo;
+use super::appinfo::{self, LocalInfo};
+use super::catalog;
 use super::vdf::{self, Vdf};
 use crate::db::{now, Db};
 use anyhow::{Context, Result};
@@ -28,6 +29,7 @@ pub struct LocalApp {
     pub last_played: i64,
     pub installed: bool,
     pub size_bytes: i64,
+    pub info: Option<LocalInfo>,
 }
 
 /// Reads everything the Steam client already knows, with no credentials at all:
@@ -86,13 +88,11 @@ pub fn scan(root: &Path) -> Result<(LocalScan, Vec<LocalApp>)> {
         if let Some(a) = apps.get_mut(appid) {
             a.name = Some(entry.name.clone());
             a.kind = Some(entry.kind.clone());
+            a.info = Some(entry.info.clone());
         }
     }
 
-    let mut out: Vec<LocalApp> = apps
-        .into_values()
-        .filter(is_plausible_game)
-        .collect();
+    let mut out: Vec<LocalApp> = apps.into_values().filter(is_plausible_game).collect();
     out.sort_by_key(|a| a.appid);
     report.apps_seen = out.len();
     report.installed = out.iter().filter(|a| a.installed).count();
@@ -283,11 +283,22 @@ pub fn ingest(db: &Db, apps: &[LocalApp]) -> Result<usize> {
             )?;
             let mut kind = tx.prepare(
                 "INSERT INTO meta(appid,kind,fetched_at,ok) VALUES(?1,?2,0,1)
-                 ON CONFLICT(appid) DO UPDATE SET kind=CASE WHEN meta.fetched_at=0 THEN ?2 ELSE meta.kind END",
+                 ON CONFLICT(appid) DO UPDATE SET kind=CASE WHEN meta.fetched_at=0 AND ?2<>'' THEN ?2 ELSE meta.kind END",
+            )?;
+            let mut local = tx.prepare(
+                "UPDATE meta SET tags=?2, l_genres=?3, l_categories=?4, l_metacritic=?5,
+                                 l_release_year=?6, audio_langs=?7, audio_full=?8, subtitles=?9,
+                                 deck=?10, deck_input=?11, needs_online=?12, review_pct=?13,
+                                 local_at=?14
+                 WHERE appid=?1",
             )?;
             for a in apps {
-                if let Some(k) = a.kind.as_deref().filter(|k| !k.is_empty()) {
+                let k = a.kind.as_deref().unwrap_or_default();
+                if !k.is_empty() || a.info.is_some() {
                     kind.execute(params![a.appid, k])?;
+                }
+                if let Some(info) = &a.info {
+                    store_local_info(&mut local, a.appid, info, ts)?;
                 }
                 up.execute(params![
                     a.appid,
@@ -319,6 +330,64 @@ pub fn ingest(db: &Db, apps: &[LocalApp]) -> Result<usize> {
         tx.commit()?;
         Ok(apps.len())
     })
+}
+
+fn names(ids: &[u32], lookup: fn(u32) -> Option<&'static str>) -> Vec<&'static str> {
+    ids.iter().filter_map(|id| lookup(*id)).collect()
+}
+
+/// Genres with the store's primary genre first, since the engine reads the first
+/// genre as the game's identity.
+fn ordered_genres(info: &LocalInfo) -> Vec<&'static str> {
+    let mut ids: Vec<u32> = info.primary_genre.into_iter().collect();
+    ids.extend(
+        info.genres
+            .iter()
+            .copied()
+            .filter(|g| Some(*g) != info.primary_genre),
+    );
+    names(&ids, catalog::genre_name)
+}
+
+fn known_flag(count: u32, languages: u32) -> i64 {
+    if languages == 0 {
+        -1
+    } else {
+        count as i64
+    }
+}
+
+fn store_local_info(
+    stmt: &mut rusqlite::Statement,
+    appid: i64,
+    info: &LocalInfo,
+    ts: i64,
+) -> Result<()> {
+    stmt.execute(params![
+        appid,
+        serde_json::to_string(&names(&info.tags, catalog::tag_name))?,
+        serde_json::to_string(&ordered_genres(info))?,
+        serde_json::to_string(&names(&info.categories, catalog::category_name))?,
+        info.metacritic,
+        if info.release_ts > 0 {
+            crate::db::year_of(info.release_ts)
+        } else {
+            0
+        },
+        if info.languages == 0 {
+            -1
+        } else {
+            info.languages as i64
+        },
+        known_flag(info.audio_full, info.languages),
+        known_flag(info.subtitles, info.languages),
+        info.deck as i64,
+        info.deck_input,
+        info.needs_online.map(|b| b as i64).unwrap_or(-1),
+        info.review_percentage,
+        ts
+    ])?;
+    Ok(())
 }
 
 pub fn scan_and_ingest(db: &Db, root: &Path) -> Result<LocalScan> {
