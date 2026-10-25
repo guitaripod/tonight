@@ -39,7 +39,7 @@ def main():
         page.wait_for_timeout(300)
         page.screenshot(path=str(OUT / "table.png"))
 
-        page.set_viewport_size({"width": 1280, "height": 860})
+        page.set_viewport_size({"width": 1280, "height": 1000})
         page.click(".deal-bar .btn")
         page.wait_for_selector(".card.revealed", timeout=10000)
         page.wait_for_timeout(1400)

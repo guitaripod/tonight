@@ -63,7 +63,13 @@ export async function renderShelves(root, ctx, shelfId) {
     timer = setTimeout(async () => {
       try {
         const { items } = await api.search(q);
-        renderList(results, items, `${items.length} match${items.length === 1 ? "" : "es"} for “${q}”`);
+        renderList(
+          results,
+          items,
+          `${items.length} match${items.length === 1 ? "" : "es"} for “${q}”`,
+          null,
+          "Nothing in your library matches that. Try a genre, a mood or a tag."
+        );
       } catch (e) {
         toast(e.message);
       }
@@ -96,14 +102,12 @@ export async function renderShelves(root, ctx, shelfId) {
   }
 }
 
-function renderList(container, items, heading, sub) {
+function renderList(container, items, heading, sub, emptyText = "Nothing on this shelf. That is a good sign.") {
   clear(container);
-  container.append(
-    h("p", { class: "eyebrow", style: "margin-top:1.6rem" }, heading),
-    sub ? h("p", { class: "muted", style: "margin-top:-0.3rem" }, sub) : null
-  );
+  container.append(h("p", { class: "eyebrow", style: "margin-top:1.6rem" }, heading));
+  if (sub) container.append(h("p", { class: "muted", style: "margin-top:-0.3rem" }, sub));
   if (!items.length) {
-    container.append(h("p", { class: "muted" }, "Nothing on this shelf. That is a good sign."));
+    container.append(h("p", { class: "muted" }, emptyText));
     return;
   }
   container.append(

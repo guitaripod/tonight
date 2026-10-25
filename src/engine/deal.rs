@@ -253,8 +253,9 @@ fn loosened_note(
             names_of(&tight)
         ),
         (false, false) => format!(
-            "Few games meet {} strictly, so I loosened it a little.",
-            names_of(&tight)
+            "Few games meet {} strictly, so I loosened {} a little.",
+            names_of(&tight),
+            if tight.len() == 1 { "it" } else { "them" }
         ),
         (true, _) => format!("Few games fit {time} strictly, so I loosened the time a little."),
     }

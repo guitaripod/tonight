@@ -418,7 +418,8 @@ button, input, select { font: inherit; color: inherit; }
   font-size: 9rem;
   line-height: 1;
   color: var(--brass);
-  opacity: 0.2;
+  opacity: 0.24;
+  z-index: 1;
 }
 
 .face-front::after {
@@ -848,6 +849,16 @@ kbd {
 }
 .notice[hidden] { display: none; }
 
+.swipe-hint {
+  display: none;
+  margin: 0.2rem 0 0;
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--bone-faint);
+}
+
 .pool-line {
   margin: 1.4rem 0 0;
   font-family: var(--mono);
@@ -857,8 +868,8 @@ kbd {
   color: var(--bone-faint);
 }
 
-.table-head .context { display: flex; flex-wrap: wrap; gap: 0.2rem 0; max-width: 34rem; justify-content: flex-end; }
-.table-head .context span + span::before { content: "·"; margin: 0 0.55rem; color: var(--brass-dim); }
+.table-head .context { display: flex; flex-wrap: wrap; gap: 0.35rem; flex-basis: 100%; justify-content: flex-start; }
+.table-head .context span { border: 1px solid var(--line); padding: 0.2rem 0.55rem; }
 
 .seat-fits {
   list-style: none;
@@ -925,11 +936,11 @@ kbd {
 
 .field-inline { margin: 0 0 0.8rem; }
 .field-inline .mini-head { margin: 0.5rem 0 0.4rem; }
-.segmented { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); }
+.segmented { display: inline-flex; flex-wrap: wrap; gap: 1px; background: var(--line); border: 1px solid var(--line); }
 .segmented button {
-  background: none;
+  background: var(--night-2);
   border: 0;
-  border-right: 1px solid var(--line);
+  flex: 1 1 auto;
   padding: 0.45rem 0.8rem;
   cursor: pointer;
   font-family: var(--mono);
@@ -938,7 +949,6 @@ kbd {
   text-transform: uppercase;
   color: var(--bone-dim);
 }
-.segmented button:last-child { border-right: 0; }
 .segmented button:hover { color: var(--bone); }
 .segmented button[aria-pressed="true"] { background: var(--brass); color: #17120a; }
 
@@ -973,6 +983,7 @@ kbd {
 /* ---------- responsive ---------- */
 
 @media (max-width: 760px) {
+  .swipe-hint { display: block; }
   .deal-bar.sticky {
     position: sticky;
     bottom: 0;
@@ -982,7 +993,6 @@ kbd {
     background: linear-gradient(rgba(22, 17, 28, 0), var(--night) 32%);
   }
   .deal-bar.sticky .btn { padding: 0.9rem 1.4rem; }
-  .table-head .context { justify-content: flex-start; }
   .axis { grid-template-columns: 7.5rem 1fr; }
   .score-row { grid-template-columns: 8rem 1fr 3.2rem; }
   .toggles { grid-template-columns: 1fr; }
@@ -1001,7 +1011,7 @@ kbd {
   .duel { grid-template-columns: 1fr; }
   .duel .versus { justify-self: center; }
   .topbar { flex-wrap: wrap; gap: 0.6rem 1rem; }
-  .nav { order: 3; width: 100%; gap: 0.5rem 1.1rem; }
+  .nav { order: 3; flex: 1 1 100%; gap: 0.5rem 1.1rem; }
   .nav a { letter-spacing: 0.1em; font-size: 0.64rem; }
   .shelf-item { grid-template-columns: 2.6rem 1fr; }
   .shelf-item .actions { grid-column: 1 / -1; }

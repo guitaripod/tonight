@@ -90,7 +90,8 @@ function nearest(choices, value) {
 }
 
 function reasonList(card) {
-  const texts = (card.reasons || []).map((r) => r.text);
+  const shownBelow = (card.fits || []).length > 0;
+  const texts = (card.reasons || []).filter((r) => !(shownBelow && r.kind.startsWith("fit:"))).map((r) => r.text);
   if (!texts.length && card.detail) texts.push(card.detail);
   return h(
     "ul",

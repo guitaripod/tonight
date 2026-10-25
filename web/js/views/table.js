@@ -286,6 +286,7 @@ export function renderHand(root, ctx, hand, { animate }) {
       hand.relaxed ? h("p", { class: "notice" }, hand.relaxed) : null,
       locked ? h("p", { class: "locked-note" }, "no more passes") : null,
       seats,
+      hand.cards.length > 1 ? h("p", { class: "swipe-hint" }, "Swipe sideways for the other cards") : null,
       hand.note ? h("p", { class: "reroll-note" }, hand.note) : null,
       hand.library
         ? h("p", { class: "pool-line" }, `Dealt from ${hand.viable} of your ${hand.library} games that fit tonight.`)
