@@ -884,6 +884,44 @@ mod tests {
     }
 
     #[test]
+    fn keywords_match_whole_words_only() {
+        assert!(contains_word("an idle clicker", "idle"));
+        assert!(!contains_word("a bridle for horses", "idle"));
+        assert!(contains_word("many roguelikes", "roguelike"));
+        assert!(!contains_word("roguelikeness", "roguelike"));
+        assert!(contains_word("co-op & puzzle, fun", "puzzle"));
+    }
+
+    #[test]
+    fn a_player_override_beats_every_tag() {
+        let mut m = meta(&["Horror"], "");
+        m.tags = vec!["Horror".into(), "Atmospheric".into()];
+        let guessed = derive(&game("Dread"), &m, &Personal::default());
+        let mut pins = HashMap::new();
+        pins.insert("sound".to_string(), 0.05);
+        let pinned = derive(
+            &game("Dread"),
+            &m,
+            &Personal {
+                traits: Some(&pins),
+                ..Default::default()
+            },
+        );
+        assert!(guessed.sound.value > 0.7, "got {}", guessed.sound.value);
+        assert!((pinned.sound.value - 0.05).abs() < 1e-9);
+        assert_eq!(pinned.sound.confidence, 1.0);
+    }
+
+    #[test]
+    fn tags_name_the_archetype_before_the_description_does() {
+        let mut m = meta(&["Strategy"], "a quirky platformer about worms");
+        m.tags = vec!["Turn-Based Strategy".into()];
+        let s = derive(&game("Worms"), &m, &Personal::default());
+        assert!(s.pause.value > 0.7, "got {}", s.pause.value);
+        assert_ne!(s.archetype, "platformer");
+    }
+
+    #[test]
     fn single_player_games_are_not_social() {
         let s = derive(
             &game("Portal"),

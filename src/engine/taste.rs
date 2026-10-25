@@ -57,6 +57,16 @@ pub fn nudge(db: &Db, appid: i64, signal: f64) -> Result<()> {
     apply(db, &dims(&c), signal)
 }
 
+/// Wipes everything the deck has learned about taste: the per-dimension weights
+/// and every duel rating. Verdicts and the session log stay, since those are a record.
+pub fn forget(db: &Db) -> Result<()> {
+    db.with(|c| {
+        c.execute("DELETE FROM taste", [])?;
+        c.execute("UPDATE prefs SET elo = 1500, duels = 0", [])?;
+        Ok(())
+    })
+}
+
 pub fn signal_for(verdict: &str) -> f64 {
     match verdict {
         "loved" => 1.0,
@@ -85,6 +95,7 @@ pub struct DuelSide {
     pub name: String,
     pub session_label: String,
     pub genres: Vec<String>,
+    pub tags: Vec<String>,
     pub playtime_min: i64,
     pub short_desc: String,
 }
@@ -95,6 +106,7 @@ fn side(c: &Candidate) -> DuelSide {
         name: c.game.name.clone(),
         session_label: c.shape.session_label.clone(),
         genres: c.meta.genres.clone(),
+        tags: c.meta.tags.iter().take(3).cloned().collect(),
         playtime_min: c.game.playtime_min,
         short_desc: c.meta.short_desc.clone(),
     }

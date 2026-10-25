@@ -2,6 +2,9 @@ FROM rust:1-slim-bookworm AS build
 WORKDIR /src
 RUN apt-get update && apt-get install -y --no-install-recommends pkg-config && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock ./
+RUN mkdir src && echo 'fn main() {}' > src/main.rs \
+    && cargo build --release --locked \
+    && rm -rf src target/release/tonight target/release/deps/tonight-*
 COPY src ./src
 COPY web ./web
 RUN cargo build --release --locked

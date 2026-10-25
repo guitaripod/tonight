@@ -256,3 +256,117 @@ pub fn recent(db: &Db, limit: usize) -> Result<Vec<HistoryRow>> {
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::tests::Scratch;
+
+    fn seed(db: &Db, appid: i64, name: &str, tags: &str) {
+        db.with(|c| {
+            c.execute(
+                "INSERT INTO games(appid,name,playtime_min,installed,first_seen,updated_at)
+                 VALUES(?1,?2,0,1,1,1)",
+                params![appid, name],
+            )?;
+            c.execute(
+                "INSERT INTO meta(appid,kind,tags,fetched_at,ok) VALUES(?1,'game',?2,1,1)",
+                params![appid, tags],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    fn sound_of(db: &Db, appid: i64) -> f64 {
+        load::one(db, appid).unwrap().unwrap().shape.sound.value
+    }
+
+    #[test]
+    fn bailing_because_the_sound_was_needed_pins_that_game_as_sound_hungry() {
+        let scratch = Scratch::new();
+        let db = &scratch.db;
+        seed(db, 10, "Quiet Looking", r#"["Turn-Based Strategy"]"#);
+        let before = sound_of(db, 10);
+        let s = start(
+            db,
+            10,
+            None,
+            45,
+            "mellow",
+            "surprise",
+            &["quiet".to_string()],
+        )
+        .unwrap();
+        end(db, s.id, "bounced", Some("sound")).unwrap();
+        let after = sound_of(db, 10);
+        assert!(before < 0.4, "got {before}");
+        assert!((after - 0.85).abs() < 1e-9, "got {after}");
+        assert_eq!(
+            recent(db, 1).unwrap()[0].reason.as_deref(),
+            Some("Needed the sound")
+        );
+    }
+
+    #[test]
+    fn a_bail_for_mood_barely_dents_taste() {
+        let scratch = Scratch::new();
+        let db = &scratch.db;
+        seed(db, 11, "Mood", r#"["Puzzle"]"#);
+        let s = start(db, 11, None, 0, "mellow", "surprise", &[]).unwrap();
+        end(db, s.id, "bounced", Some("mood")).unwrap();
+        let weight: f64 = db
+            .with(|c| {
+                Ok(
+                    c.query_row("SELECT weight FROM taste WHERE dim='tag:Puzzle'", [], |r| {
+                        r.get(0)
+                    })?,
+                )
+            })
+            .unwrap();
+        assert!(weight > -0.1, "got {weight}");
+    }
+
+    #[test]
+    fn a_good_night_with_the_sound_taken_is_remembered() {
+        let scratch = Scratch::new();
+        let db = &scratch.db;
+        seed(db, 12, "Worked", r#"["Atmospheric", "Great Soundtrack"]"#);
+        let before = sound_of(db, 12);
+        let s = start(
+            db,
+            12,
+            None,
+            45,
+            "mellow",
+            "surprise",
+            &["quiet".to_string()],
+        )
+        .unwrap();
+        end(db, s.id, "loved", None).unwrap();
+        let after = sound_of(db, 12);
+        assert!(after < before - 0.1, "before {before} after {after}");
+    }
+
+    #[test]
+    fn an_unknown_reason_is_ignored_and_a_game_is_never_retired_by_a_bail() {
+        let scratch = Scratch::new();
+        let db = &scratch.db;
+        seed(db, 13, "Odd", "[]");
+        let s = start(db, 13, None, 0, "mellow", "surprise", &[]).unwrap();
+        end(db, s.id, "bounced", Some("because")).unwrap();
+        assert_eq!(recent(db, 1).unwrap()[0].reason, None);
+        assert!(!load::one(db, 13).unwrap().unwrap().prefs.amnesty);
+    }
+
+    #[test]
+    fn only_one_session_is_ever_open() {
+        let scratch = Scratch::new();
+        let db = &scratch.db;
+        seed(db, 14, "A", "[]");
+        seed(db, 15, "B", "[]");
+        start(db, 14, None, 0, "mellow", "surprise", &[]).unwrap();
+        let second = start(db, 15, None, 0, "mellow", "surprise", &[]).unwrap();
+        assert_eq!(current(db).unwrap().unwrap().id, second.id);
+    }
+}

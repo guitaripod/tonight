@@ -127,6 +127,23 @@ export async function renderSettings(root, ctx) {
           "Full resync"
         ),
         h("a", { class: "btn ghost", href: "/api/export" }, "Export my data"),
+        h(
+          "button",
+          {
+            class: "btn ghost danger",
+            type: "button",
+            onclick: async () => {
+              if (!confirm("Forget every duel and every taste weight? Your verdicts and the session log stay.")) return;
+              try {
+                await api.forgetTaste();
+                toast("The deck has forgotten your taste. It will relearn.");
+              } catch (e) {
+                toast(e.message);
+              }
+            },
+          },
+          "Forget my taste"
+        ),
         h("a", { class: "btn ghost", href: "#/history" }, "Session log")
       ),
       h("hr", { class: "rule" }),

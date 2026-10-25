@@ -179,6 +179,11 @@ impl Db {
         f(&guard)
     }
 
+    #[cfg(test)]
+    pub fn conn_for_test(&self) -> std::sync::MutexGuard<'_, Connection> {
+        self.conn.lock().unwrap()
+    }
+
     pub fn setting(&self, key: &str) -> Option<String> {
         self.with(|c| {
             Ok(
@@ -270,7 +275,95 @@ pub fn year_of(ts: i64) -> i64 {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
+    use super::*;
+
+    /// A database file that deletes itself when the test ends.
+    pub struct Scratch {
+        pub db: Db,
+        path: std::path::PathBuf,
+    }
+
+    impl Scratch {
+        pub fn new() -> Scratch {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let path = std::env::temp_dir()
+                .join(format!("tonight-test-{}-{nanos}.db", std::process::id()));
+            Scratch {
+                db: Db::open(&path).expect("open scratch db"),
+                path,
+            }
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            for suffix in ["", "-wal", "-shm"] {
+                let _ = std::fs::remove_file(format!("{}{suffix}", self.path.display()));
+            }
+        }
+    }
+
+    #[test]
+    fn an_old_database_gains_the_new_columns() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let path =
+            std::env::temp_dir().join(format!("tonight-old-{}-{nanos}.db", std::process::id()));
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE meta (
+                   appid INTEGER PRIMARY KEY, name TEXT, kind TEXT, short_desc TEXT,
+                   genres TEXT NOT NULL DEFAULT '[]', categories TEXT NOT NULL DEFAULT '[]',
+                   developers TEXT NOT NULL DEFAULT '[]', release_date TEXT,
+                   release_year INTEGER NOT NULL DEFAULT 0, metacritic INTEGER NOT NULL DEFAULT 0,
+                   recommendations INTEGER NOT NULL DEFAULT 0, is_free INTEGER NOT NULL DEFAULT 0,
+                   price_initial INTEGER NOT NULL DEFAULT 0, currency TEXT,
+                   achievements_total INTEGER NOT NULL DEFAULT 0,
+                   fetched_at INTEGER NOT NULL DEFAULT 0, ok INTEGER NOT NULL DEFAULT 1);
+                 CREATE TABLE hands (
+                   id TEXT PRIMARY KEY, ts INTEGER NOT NULL, budget INTEGER, mood TEXT,
+                   appetite TEXT, cards TEXT NOT NULL, passes INTEGER NOT NULL DEFAULT 0,
+                   rerolls INTEGER NOT NULL DEFAULT 0, resolved INTEGER, reroll_of TEXT);
+                 CREATE TABLE sessions (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT, appid INTEGER NOT NULL,
+                   started_at INTEGER NOT NULL, ended_at INTEGER, budget INTEGER, mood TEXT,
+                   appetite TEXT, verdict TEXT, first_impression TEXT, hand_id TEXT);
+                 INSERT INTO meta(appid, kind) VALUES (1, 'game');
+                 INSERT INTO hands(id, ts, cards) VALUES ('old', 1, '[]');",
+            )
+            .unwrap();
+        }
+        let db = Db::open(&path).expect("migrates");
+        let (tags, conditions): (String, String) = db
+            .with(|c| {
+                Ok(c.query_row(
+                    "SELECT m.tags, h.conditions FROM meta m, hands h",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )?)
+            })
+            .unwrap();
+        assert_eq!(tags, "[]");
+        assert_eq!(conditions, "[]");
+        drop(db);
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+        }
+    }
+
+    #[test]
+    fn opening_twice_is_harmless() {
+        let scratch = Scratch::new();
+        migrate(&scratch.db.conn_for_test()).unwrap();
+    }
+
     use super::year_of;
 
     #[test]

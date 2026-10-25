@@ -767,6 +767,10 @@ kbd {
 .axis-ends { display: flex; justify-content: space-between; margin: 0.2rem 0 0; font-family: var(--mono); font-size: 0.5rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--bone-faint); }
 .axis-because { margin: 0.2rem 0 0; font-size: 0.78rem; color: var(--bone-dim); }
 .readiness .axis { margin-bottom: 0.4rem; }
+.two-up { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1.4rem 3rem; }
+.taste.neg .axis .track i { background: var(--rust); }
+.taste.pos .axis .track i { background: var(--sage); }
+.taste .axis { grid-template-columns: 8rem 1fr; }
 .readiness .axis .track i { background: var(--sage); }
 
 /* ---------- conditions ---------- */

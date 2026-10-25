@@ -121,7 +121,7 @@ function side(g, onPick) {
       h(
         "p",
         { class: "keyhint" },
-        [g.session_label, g.genres.slice(0, 2).join(" · "), g.playtime_min ? `${hours(g.playtime_min)} played` : "never opened"]
+        [g.session_label, (g.tags.length ? g.tags : g.genres).slice(0, 3).join(" · "), g.playtime_min ? `${hours(g.playtime_min)} played` : "never opened"]
           .filter(Boolean)
           .join("  ·  ")
       )

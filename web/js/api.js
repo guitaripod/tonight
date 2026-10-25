@@ -55,4 +55,5 @@ export const api = {
   shelf: (id, limit = 60) => get(`/api/shelf/${id}?limit=${limit}`),
   search: (q) => get(`/api/search?q=${encodeURIComponent(q)}`),
   taste: () => get("/api/taste"),
+  forgetTaste: () => post("/api/taste/forget"),
 };

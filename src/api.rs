@@ -74,6 +74,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/shelf/{id}", get(shelf_handler))
         .route("/api/search", get(search_handler))
         .route("/api/taste", get(taste_handler))
+        .route("/api/taste/forget", post(forget_handler))
         .route("/api/export", get(export_handler))
         .route("/img/{appid}/{kind}", get(image_handler))
         .with_state(state)
@@ -93,7 +94,10 @@ async fn state_handler(State(st): State<AppState>) -> ApiResult<Json<Value>> {
         )?)
     })?;
     let has_key = !db.setting_or("steam_api_key", "").trim().is_empty();
-    let playable = load::candidates(db)?.iter().filter(|c| load::is_game(c)).count();
+    let playable = load::candidates(db)?
+        .iter()
+        .filter(|c| load::is_game(c))
+        .count();
     Ok(Json(json!({
         "library": { "games": counts.0, "playable": playable, "enriched": counts.1,
                      "installed": counts.2, "retired": counts.3, "sessions": counts.4 },
@@ -542,6 +546,11 @@ async fn search_handler(
     Ok(Json(json!({ "items": shelves::search(&st.db, &q.q, 40)? })))
 }
 
+async fn forget_handler(State(st): State<AppState>) -> ApiResult<Json<Value>> {
+    taste::forget(&st.db)?;
+    Ok(Json(json!({"ok": true})))
+}
+
 async fn taste_handler(State(st): State<AppState>) -> ApiResult<Json<Value>> {
     Ok(Json(json!({ "taste": taste::profile(&st.db)? })))
 }
@@ -555,6 +564,7 @@ struct Export {
     events: Vec<Value>,
     sessions: Vec<Value>,
     taste: Vec<Value>,
+    overrides: Vec<Value>,
 }
 
 /// Your judgements are yours: one file, no lock-in, restorable into a fresh install.
@@ -594,13 +604,14 @@ async fn export_handler(State(st): State<AppState>) -> ApiResult<Response> {
         Ok(rows)
     })?;
     let export = Export {
-        version: 1,
+        version: 2,
         exported_at: now(),
         settings,
         prefs: dump("SELECT * FROM prefs")?,
         events: dump("SELECT * FROM events")?,
         sessions: dump("SELECT * FROM sessions")?,
         taste: dump("SELECT * FROM taste")?,
+        overrides: dump("SELECT * FROM overrides")?,
     };
     let body = serde_json::to_vec_pretty(&export)?;
     let mut headers = HeaderMap::new();

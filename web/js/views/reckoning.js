@@ -12,7 +12,7 @@ function stat(label, value, sub, hot) {
 
 export async function renderReckoning(root) {
   clear(root).append(h("p", { class: "spinner" }, "counting…"));
-  const r = await api.reckoning();
+  const [r, learned] = await Promise.all([api.reckoning(), api.taste().catch(() => ({ taste: [] }))]);
 
   const money = r.money_untouched > 0
     ? `${r.money_untouched.toFixed(0)} ${r.currency}`
@@ -48,6 +48,7 @@ export async function renderReckoning(root) {
     namedRow("The one you keep refusing", r.most_passed),
     namedRow("Your longest relationship", r.biggest_love),
     readinessSection(r),
+    tasteSection(learned.taste),
     r.top_archetypes.length
       ? h(
           "div",
@@ -138,6 +139,48 @@ function readinessSection(r) {
           r.bail_reasons.map(([label, n]) => `${label} ×${n}`).join(" · ")
         )
       : null
+  );
+}
+
+const DIM_PREFIX = { genre: "", tag: "", cat: "", arch: "" };
+
+function dimLabel(dim) {
+  const [kind, ...rest] = dim.split(":");
+  const name = rest.join(":");
+  return kind === "arch" ? `${name} games` : (DIM_PREFIX[kind] ?? "") + name;
+}
+
+/// What the deck has learned about you from duels, passes and verdicts, said out
+/// loud so it can be argued with. Only weights with real evidence behind them.
+function tasteSection(rows) {
+  const strong = (rows || []).filter((t) => t.n >= 3 && Math.abs(t.weight) >= 0.2);
+  if (strong.length < 3) return null;
+  const column = (title, items, kind) =>
+    h(
+      "div",
+      {},
+      h("p", { class: "mini-head" }, title),
+      h(
+        "div",
+        { class: `axes taste ${kind}` },
+        items.map((t) =>
+          h(
+            "div",
+            { class: "axis" },
+            h("span", {}, dimLabel(t.dim)),
+            h("div", { class: "axis-body" }, h("div", { class: "track" }, h("i", { style: `width:${Math.round((Math.min(Math.abs(t.weight), 3) / 3) * 100)}%` })))
+          )
+        )
+      )
+    );
+  const liked = strong.filter((t) => t.weight > 0).slice(0, 6);
+  const disliked = strong.filter((t) => t.weight < 0).slice(0, 6);
+  return h(
+    "div",
+    { style: "margin:2rem 0" },
+    h("p", { class: "eyebrow" }, "What the deck has learned"),
+    h("p", { class: "muted", style: "max-width:56ch;margin-top:-0.3rem" }, "From your duels, passes and verdicts. If it is wrong, play more duels, or forget it in Settings."),
+    h("div", { class: "two-up" }, liked.length ? column("You reach for", liked, "pos") : null, disliked.length ? column("You turn down", disliked, "neg") : null)
   );
 }
 

@@ -477,9 +477,9 @@ fn default_verdict(c: &Candidate, slot: Slot) -> String {
                 "You bought it. You have never once opened it.".into()
             } else {
                 format!(
-                "{}, once. That is a rounding error, not an opinion.",
-                score::minutes_phrase(c.game.playtime_min)
-            )
+                    "{}, once. That is a rounding error, not an opinion.",
+                    score::minutes_phrase(c.game.playtime_min)
+                )
             }
         }
         Slot::SureThing => format!(

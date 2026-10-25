@@ -150,7 +150,12 @@ fn standing(value: f64) -> Standing {
 }
 
 fn with_reasons(lead: &str, labels: &[String]) -> String {
-    let why = labels.iter().take(2).cloned().collect::<Vec<_>>().join(" · ");
+    let why = labels
+        .iter()
+        .take(2)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" · ");
     if why.is_empty() {
         lead.to_string()
     } else {
@@ -168,7 +173,9 @@ pub fn evaluate(c: &Candidate, id: &str) -> Option<Fit> {
             let fit = 1.0 - risk.powf(1.3);
             let text = match standing(fit) {
                 Standing::Good => with_reasons("Nothing in it needs the sound", &s.sound.low),
-                Standing::Okay => with_reasons("Playable muted, but it leans on audio", &s.sound.high),
+                Standing::Okay => {
+                    with_reasons("Playable muted, but it leans on audio", &s.sound.high)
+                }
                 Standing::Poor => with_reasons("It needs its sound", &s.sound.high),
             };
             Fit::new(def, fit, text)
@@ -179,7 +186,10 @@ pub fn evaluate(c: &Candidate, id: &str) -> Option<Fit> {
                 Standing::Good => {
                     with_reasons("You can drop it mid-way and lose nothing", &s.pause.high)
                 }
-                Standing::Okay => with_reasons("Pausable, though a run or a save point may cost you", &s.pause.low),
+                Standing::Okay => with_reasons(
+                    "Pausable, though a run or a save point may cost you",
+                    &s.pause.low,
+                ),
                 Standing::Poor => with_reasons("It will not wait for you", &s.pause.low),
             };
             Fit::new(def, fit, text)
@@ -188,9 +198,10 @@ pub fn evaluate(c: &Candidate, id: &str) -> Option<Fit> {
             let fit = s.controller.assume(0.4);
             let text = match standing(fit) {
                 Standing::Good => with_reasons("Made for a gamepad", &s.controller.high),
-                Standing::Okay => {
-                    with_reasons("Works on a controller, with some friction", &s.controller.low)
-                }
+                Standing::Okay => with_reasons(
+                    "Works on a controller, with some friction",
+                    &s.controller.low,
+                ),
                 Standing::Poor => with_reasons("Wants a keyboard and mouse", &s.controller.low),
             };
             Fit::new(def, fit, text)

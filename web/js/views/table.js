@@ -384,7 +384,7 @@ function seat(root, ctx, hand, card, index, animate, locked) {
   const cardEl = h(
     "div",
     { class: "card" },
-    h("div", { class: "card-inner" }, h("div", { class: "face face-back" }, h("span", {}, "t")), face)
+    h("div", { class: "card-inner" }, h("div", { class: "face face-back", "aria-hidden": "true" }, h("span", {}, "t")), face)
   );
 
   if (animate) setTimeout(() => cardEl.classList.add("revealed"), 120 + index * 190);

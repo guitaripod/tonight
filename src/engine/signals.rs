@@ -59,8 +59,16 @@ impl Trait {
             value,
             confidence: 1.0,
             because: vec![because.to_string()],
-            high: if value >= 0.5 { vec![because.to_string()] } else { vec![] },
-            low: if value < 0.5 { vec![because.to_string()] } else { vec![] },
+            high: if value >= 0.5 {
+                vec![because.to_string()]
+            } else {
+                vec![]
+            },
+            low: if value < 0.5 {
+                vec![because.to_string()]
+            } else {
+                vec![]
+            },
         }
     }
 
@@ -104,9 +112,7 @@ impl Acc {
                 .iter()
                 .filter(|v| !v.2.is_empty() && keep(v.0))
                 .collect();
-            voices.sort_by(|a, b| {
-                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
-            });
+            voices.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
             let mut out: Vec<String> = vec![];
             for (_, _, label) in voices {
                 if !out.contains(label) {
@@ -118,11 +124,8 @@ impl Acc {
             }
             out
         };
-        let mut ranked: Vec<&(f64, f64, String)> = self
-            .voices
-            .iter()
-            .filter(|v| !v.2.is_empty())
-            .collect();
+        let mut ranked: Vec<&(f64, f64, String)> =
+            self.voices.iter().filter(|v| !v.2.is_empty()).collect();
         ranked.sort_by(|a, b| {
             let pull = |v: &&(f64, f64, String)| v.1 * (1.0 - (v.0 - value).abs());
             pull(b)

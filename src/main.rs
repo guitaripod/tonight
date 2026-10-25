@@ -37,17 +37,17 @@ async fn main() -> anyhow::Result<()> {
     let http = steam::web::client();
     let syncer = sync::Syncer::new();
 
-    if db.setting("steamid").is_none() {
-        if let Some(root) = &cfg.steam_root {
-            if let Ok(report) = steam::local::scan_and_ingest(&db, root) {
-                tracing::info!(
-                    "first run: {} apps from {} ({} installed)",
-                    report.apps_seen,
-                    report.steam_root,
-                    report.installed
-                );
-            }
+    if let Some(root) = &cfg.steam_root {
+        match steam::local::scan_and_ingest(&db, root) {
+            Ok(report) => tracing::info!(
+                "read {} apps from {} ({} installed)",
+                report.apps_seen,
+                report.steam_root,
+                report.installed
+            ),
+            Err(e) => tracing::warn!("local scan failed: {e:#}"),
         }
+        watch_steam(db.clone(), root.clone());
     }
 
     let state = api::AppState {
@@ -91,6 +91,19 @@ async fn main() -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown())
         .await?;
     Ok(())
+}
+
+/// Rereads the Steam client every couple of minutes, so a game installed or
+/// played while tonight is running shows up without pressing sync.
+fn watch_steam(db: db::Db, root: std::path::PathBuf) {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+            let (db, root) = (db.clone(), root.clone());
+            let _ = tokio::task::spawn_blocking(move || steam::local::scan_and_ingest(&db, &root))
+                .await;
+        }
+    });
 }
 
 fn open_in_browser(url: &str) -> std::io::Result<()> {

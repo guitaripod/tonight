@@ -1,6 +1,6 @@
 [package]
 name = "tonight"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.80"
 description = "A self-hosted decision engine for your Steam library. Stop browsing. Start playing."
