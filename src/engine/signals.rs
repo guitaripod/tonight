@@ -39,6 +39,8 @@ pub struct Trait {
     pub value: f64,
     pub confidence: f64,
     pub because: Vec<String>,
+    pub high: Vec<String>,
+    pub low: Vec<String>,
 }
 
 impl Trait {
@@ -47,6 +49,8 @@ impl Trait {
             value,
             confidence: 0.0,
             because: vec![],
+            high: vec![],
+            low: vec![],
         }
     }
 
@@ -55,6 +59,8 @@ impl Trait {
             value,
             confidence: 1.0,
             because: vec![because.to_string()],
+            high: if value >= 0.5 { vec![because.to_string()] } else { vec![] },
+            low: if value < 0.5 { vec![because.to_string()] } else { vec![] },
         }
     }
 
@@ -92,15 +98,39 @@ impl Acc {
         } else {
             prior
         };
-        let mut voices: Vec<&(f64, f64, String)> = self.voices.iter().collect();
-        voices.sort_by(|a, b| {
+        let labelled = |keep: &dyn Fn(f64) -> bool| -> Vec<String> {
+            let mut voices: Vec<&(f64, f64, String)> = self
+                .voices
+                .iter()
+                .filter(|v| !v.2.is_empty() && keep(v.0))
+                .collect();
+            voices.sort_by(|a, b| {
+                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+            });
+            let mut out: Vec<String> = vec![];
+            for (_, _, label) in voices {
+                if !out.contains(label) {
+                    out.push(label.clone());
+                }
+                if out.len() == 3 {
+                    break;
+                }
+            }
+            out
+        };
+        let mut ranked: Vec<&(f64, f64, String)> = self
+            .voices
+            .iter()
+            .filter(|v| !v.2.is_empty())
+            .collect();
+        ranked.sort_by(|a, b| {
             let pull = |v: &&(f64, f64, String)| v.1 * (1.0 - (v.0 - value).abs());
             pull(b)
                 .partial_cmp(&pull(a))
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         let mut because: Vec<String> = vec![];
-        for (_, _, label) in voices {
+        for (_, _, label) in ranked {
             if !because.contains(label) {
                 because.push(label.clone());
             }
@@ -112,6 +142,8 @@ impl Acc {
             value: value.clamp(0.0, 1.0),
             confidence: 1.0 - (-self.weight / 2.0).exp(),
             because,
+            high: labelled(&|v| v >= 0.6),
+            low: labelled(&|v| v <= 0.4),
         }
     }
 }
@@ -789,13 +821,13 @@ mod tests {
         let t = Trait {
             value: 0.05,
             confidence: 0.1,
-            because: vec![],
+            ..Trait::guess(0.05)
         };
         assert!(t.assume(0.6) > 0.4);
         let sure = Trait {
             value: 0.05,
             confidence: 0.99,
-            because: vec![],
+            ..Trait::guess(0.05)
         };
         assert!(sure.assume(0.6) < 0.1);
     }

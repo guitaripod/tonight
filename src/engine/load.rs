@@ -201,16 +201,20 @@ fn is_software(c: &Candidate) -> bool {
         .any(|g| SOFTWARE_GENRES.contains(&g.as_str()))
 }
 
-/// Games eligible to be dealt: real games, not retired, with a usable name.
+/// Whether an entry is a game at all: named, not a demo or a tool, not creative
+/// software that Steam files under games.
+pub fn is_game(c: &Candidate) -> bool {
+    let k = c.meta.kind.to_ascii_lowercase();
+    !is_software(c)
+        && !c.game.name.trim().is_empty()
+        && (k.is_empty() || !NON_GAME_KINDS.contains(&k.as_str()))
+}
+
+/// Games eligible to be dealt: real games, not retired, not sworn off.
 pub fn eligible(all: &[Candidate]) -> Vec<&Candidate> {
     all.iter()
         .filter(|c| !c.prefs.amnesty)
-        .filter(|c| !is_software(c))
-        .filter(|c| !c.game.name.trim().is_empty())
-        .filter(|c| {
-            let k = c.meta.kind.to_ascii_lowercase();
-            k.is_empty() || !NON_GAME_KINDS.contains(&k.as_str())
-        })
+        .filter(|c| is_game(c))
         .filter(|c| c.history.last_verdict != "never")
         .collect()
 }

@@ -1,5 +1,5 @@
 import { api } from "../api.js";
-import { clear, clock, empty, h, toast } from "../ui.js";
+import { chip, clear, clock, conditionLabels, empty, h, toast } from "../ui.js";
 import { handoff } from "./table.js";
 
 let ticker;
@@ -18,8 +18,9 @@ export async function renderSession(root, ctx) {
     return;
   }
 
-  const clockEl = h("p", { class: "clock" }, clock(session.elapsed));
+  const clockEl = h("p", { class: "clock", role: "timer" }, clock(session.elapsed));
   const promptSlot = h("div", {});
+  const tags = conditionLabels(ctx.state.conditions, session.conditions);
 
   const view = h(
     "div",
@@ -34,10 +35,11 @@ export async function renderSession(root, ctx) {
         ? `You said you had ${session.budget} minutes. This one usually wants ${session.session_label}.`
         : `This one usually wants ${session.session_label}.`
     ),
+    tags.length ? h("div", { class: "chips centered" }, tags.map((t) => chip(t, "gold"))) : null,
     promptSlot,
     h(
       "div",
-      { class: "row", style: "justify-content:center;margin-top:1rem" },
+      { class: "row centered", style: "margin-top:1rem" },
       h(
         "button",
         {
@@ -71,51 +73,82 @@ export async function renderSession(root, ctx) {
   ctx.hotkeys = { x: () => finish(root, ctx, session) };
 }
 
-/// The honesty check: a few minutes in, is this actually working?
-function impressionPrompt(root, ctx, session) {
+/// Why it did not work matters more than that it did not: "I could not hear it"
+/// says nothing against the game, so the deck is told which it was.
+function reasonPicker(ctx, onPick) {
   return h(
     "div",
-    { class: "impression" },
-    h("p", { class: "eyebrow" }, "Checkpoint"),
-    h("p", { style: "font-size:var(--step-1);margin:0 0 1rem" }, "Is it working?"),
+    { class: "reasons" },
+    h("p", { class: "mini-head" }, "What went wrong? One tap, and the deck learns the right lesson."),
     h(
       "div",
       { class: "verdicts" },
-      h(
-        "button",
-        {
-          class: "btn go",
-          type: "button",
-          onclick: async () => {
-            await api.impression(session.id, "in");
-            session.first_impression_done = true;
-            toast("Good. Go away and play it.");
-            renderSession(root, ctx);
-          },
-        },
-        "Yes — leave me alone"
+      ctx.state.bail_reasons.map((r) =>
+        h("button", { class: "btn ghost", type: "button", onclick: () => onPick(r.id) }, r.label)
       ),
-      h(
-        "button",
-        {
-          class: "btn ghost danger",
-          type: "button",
-          onclick: async () => {
-            await api.impression(session.id, "out");
-            await api.endSession(session.id, "bounced");
-            toast("Bailed. No guilt — that is data, not failure.");
-            rebound(root, ctx, session);
-          },
-        },
-        "No — bail out"
-      )
-    ),
-    h(
-      "p",
-      { class: "keyhint", style: "margin-top:1rem" },
-      "Bailing is allowed. It teaches the deck more than finishing does."
+      h("button", { class: "linkish", type: "button", onclick: () => onPick(null) }, "Skip")
     )
   );
+}
+
+/// The honesty check: a few minutes in, is this actually working?
+function impressionPrompt(root, ctx, session) {
+  const box = h("div", { class: "impression" });
+  const ask = () =>
+    clear(box).append(
+      h("p", { class: "eyebrow" }, "Checkpoint"),
+      h("p", { style: "font-size:var(--step-1);margin:0 0 1rem" }, "Is it working?"),
+      h(
+        "div",
+        { class: "verdicts" },
+        h(
+          "button",
+          {
+            class: "btn go",
+            type: "button",
+            onclick: async () => {
+              await api.impression(session.id, "in");
+              session.first_impression_done = true;
+              toast("Good. Go away and play it.");
+              renderSession(root, ctx);
+            },
+          },
+          "Yes — leave me alone"
+        ),
+        h(
+          "button",
+          {
+            class: "btn ghost danger",
+            type: "button",
+            onclick: () => why(),
+          },
+          "No — bail out"
+        )
+      ),
+      h(
+        "p",
+        { class: "keyhint", style: "margin-top:1rem" },
+        "Bailing is allowed. It teaches the deck more than finishing does."
+      )
+    );
+
+  const why = () =>
+    clear(box).append(
+      h("p", { class: "eyebrow" }, "Bailing out"),
+      reasonPicker(ctx, async (reason) => {
+        try {
+          await api.impression(session.id, "out");
+          await api.endSession(session.id, "bounced", reason);
+          toast("Bailed. No guilt — that is data, not failure.");
+          rebound(root, ctx, session);
+        } catch (e) {
+          toast(e.message);
+        }
+      })
+    );
+
+  ask();
+  return box;
 }
 
 async function rebound(root, ctx, session) {
@@ -125,6 +158,7 @@ async function rebound(root, ctx, session) {
       budget: session.budget,
       mood: session.mood,
       appetite: session.appetite,
+      conditions: session.conditions,
       exclude: [session.appid],
     });
     clear(root).append(
@@ -134,23 +168,35 @@ async function rebound(root, ctx, session) {
         h("p", { class: "eyebrow" }, card.slot_label),
         h("h1", {}, card.name),
         h("p", { class: "muted", style: "max-width:34rem;margin:0 auto" }, card.verdict),
+        card.fits && card.fits.length
+          ? h(
+              "div",
+              { class: "chips centered" },
+              card.fits.map((f) => chip(f.standing === "good" ? f.chip : f.warn, f.standing === "good" ? "gold" : "warn", f.text))
+            )
+          : null,
         h(
           "div",
-          { class: "row", style: "justify-content:center;margin-top:1.4rem" },
+          { class: "row centered", style: "margin-top:1.4rem" },
           h(
             "button",
             {
               class: "btn go",
               type: "button",
               onclick: async () => {
-                const res = await api.startSession({
-                  appid: card.appid,
-                  budget: session.budget,
-                  mood: session.mood,
-                  appetite: session.appetite,
-                });
-                handoff(card.appid, res.session.can_launch_here);
-                renderSession(root, ctx);
+                try {
+                  const res = await api.startSession({
+                    appid: card.appid,
+                    budget: session.budget,
+                    mood: session.mood,
+                    appetite: session.appetite,
+                    conditions: session.conditions,
+                  });
+                  handoff(card.appid, res.session.can_launch_here);
+                  renderSession(root, ctx);
+                } catch (e) {
+                  toast(e.message);
+                }
               },
             },
             "Play this instead"
@@ -167,10 +213,9 @@ async function rebound(root, ctx, session) {
 
 function finish(root, ctx, session) {
   clearInterval(ticker);
-  clear(root).append(
-    h(
-      "div",
-      { class: "session" },
+  const stage = h("div", { class: "session" });
+  const verdicts = () =>
+    clear(stage).append(
       h("p", { class: "eyebrow" }, "Verdict"),
       h("h1", {}, session.name),
       h("p", { class: "muted" }, "One word, and the deck gets smarter."),
@@ -180,7 +225,11 @@ function finish(root, ctx, session) {
         verdictBtn(session, "loved", "Loved it", "go"),
         verdictBtn(session, "kept", "Kept playing", ""),
         verdictBtn(session, "fine", "It was fine", ""),
-        verdictBtn(session, "bounced", "Not tonight", ""),
+        h(
+          "button",
+          { class: "btn ghost", type: "button", onclick: () => notTonight() },
+          "Not tonight"
+        ),
         verdictBtn(session, "never", "Never again", "danger")
       ),
       h(
@@ -188,8 +237,21 @@ function finish(root, ctx, session) {
         { class: "keyhint", style: "margin-top:1.4rem" },
         "\"Never again\" retires it from the deck for good."
       )
-    )
-  );
+    );
+
+  const notTonight = () =>
+    clear(stage).append(
+      h("p", { class: "eyebrow" }, "Not tonight"),
+      h("h1", {}, session.name),
+      reasonPicker(ctx, async (reason) => {
+        await api.endSession(session.id, "bounced", reason);
+        toast("Logged. It will come back when the night suits it.");
+        location.hash = "#/reckoning";
+      })
+    );
+
+  verdicts();
+  clear(root).append(stage);
 }
 
 function verdictBtn(session, verdict, label, extra) {

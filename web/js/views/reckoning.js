@@ -47,6 +47,7 @@ export async function renderReckoning(root) {
     namedRow("The oldest ghost", r.oldest_ghost),
     namedRow("The one you keep refusing", r.most_passed),
     namedRow("Your longest relationship", r.biggest_love),
+    readinessSection(r),
     r.top_archetypes.length
       ? h(
           "div",
@@ -97,6 +98,47 @@ export async function renderReckoning(root) {
   );
 
   clear(root).append(view);
+}
+
+/// What the library is good for: how many games survive each circumstance, so
+/// "Sound is taken" comes with an honest count of what it leaves you.
+function readinessSection(r) {
+  if (!r.readiness || !r.owned) return null;
+  return h(
+    "div",
+    { style: "margin:2rem 0" },
+    h("p", { class: "eyebrow" }, "What your library is good for"),
+    h(
+      "p",
+      { class: "muted", style: "max-width:56ch;margin-top:-0.3rem" },
+      "How many of your games work when something is in the way. A small number here is the reason a bad night feels like having nothing to play."
+    ),
+    h(
+      "div",
+      { class: "axes readiness" },
+      r.readiness.map((x) =>
+        h(
+          "div",
+          { class: "axis" },
+          h("span", {}, x.label),
+          h(
+            "div",
+            { class: "axis-body" },
+            h("div", { class: "track" }, h("i", { style: `width:${Math.round((x.works / Math.max(x.total, 1)) * 100)}%` })),
+            h("p", { class: "axis-because" }, `${x.works} of ${x.total} games`)
+          )
+        )
+      )
+    ),
+    r.bail_reasons && r.bail_reasons.length
+      ? h(
+          "p",
+          { class: "keyhint", style: "margin-top:1rem" },
+          "Why you bail: ",
+          r.bail_reasons.map(([label, n]) => `${label} ×${n}`).join(" · ")
+        )
+      : null
+  );
 }
 
 function namedRow(label, named) {
@@ -238,7 +280,11 @@ export async function renderHistory(root) {
                 h("h3", {}, s.name),
                 h("p", {}, `${plural(s.minutes, "minute", "minutes")} · ${ago(s.started_at)}`)
               ),
-              h("p", { class: "keyhint" }, s.verdict)
+              h(
+                "p",
+                { class: "keyhint" },
+                [s.verdict, s.reason ? `(${s.reason})` : null].filter(Boolean).join(" ")
+              )
             )
           )
         )

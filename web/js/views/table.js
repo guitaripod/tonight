@@ -1,23 +1,36 @@
 import { api } from "../api.js";
-import { art, clear, h, hours, sheet, toast } from "../ui.js";
+import { art, budgetLabel, chip, clear, conditionLabels, h, hours, labelOf, toast } from "../ui.js";
+import { showGame } from "./game.js";
 
 const STORE = "tonight.intake";
 const HAND = "tonight.hand";
 
-const defaults = { budget: 45, mood: "mellow", appetite: "surprise" };
+const defaults = { budget: 45, mood: "mellow", appetite: "surprise", conditions: [] };
+
+const MARKS = { good: "✓", okay: "~", poor: "✕" };
 
 function intake() {
+  let saved = {};
   try {
-    return { ...defaults, ...JSON.parse(localStorage.getItem(STORE) || "{}") };
+    saved = JSON.parse(localStorage.getItem(STORE) || "{}");
   } catch {
-    return { ...defaults };
+    saved = {};
   }
+  const merged = { ...defaults, ...saved };
+  merged.conditions = Array.isArray(merged.conditions) ? merged.conditions : [];
+  if (merged.mood === "social") {
+    merged.mood = defaults.mood;
+    merged.conditions = [...new Set([...merged.conditions, "friends"])];
+  }
+  return merged;
 }
 
-function saveIntake(patch) {
-  const next = { ...intake(), ...patch };
-  localStorage.setItem(STORE, JSON.stringify(next));
-  return next;
+function saveIntake(chosen) {
+  try {
+    localStorage.setItem(STORE, JSON.stringify(chosen));
+  } catch {
+    return;
+  }
 }
 
 export async function renderTable(root, ctx) {
@@ -33,43 +46,18 @@ export async function renderTable(root, ctx) {
   return renderRitual(root, ctx);
 }
 
-/// The intake: three questions, asked in words, answered in one tap each.
+/// The intake: three questions in words, then the things that are simply true
+/// about tonight. Every tap re-counts how many games survive.
 function renderRitual(root, ctx) {
   const chosen = intake();
   const state = ctx.state;
+  const valid = new Set(state.conditions.map((c) => c.id));
+  chosen.conditions = chosen.conditions.filter((id) => valid.has(id));
 
-  const question = (index, prompt, options, key, valueOf) =>
-    h(
-      "section",
-      { class: "question" },
-      h("h2", {}, h("span", { class: "index" }, index), prompt),
-      h(
-        "div",
-        { class: "choices" },
-        options.map((o) => {
-          const value = valueOf(o);
-          const btn = h(
-            "button",
-            {
-              class: "choice",
-              type: "button",
-              "aria-pressed": String(chosen[key] === value),
-              onclick: () => {
-                chosen[key] = value;
-                saveIntake({ [key]: value });
-                btn.parentElement.querySelectorAll(".choice").forEach((b) =>
-                  b.setAttribute("aria-pressed", "false")
-                );
-                btn.setAttribute("aria-pressed", "true");
-              },
-            },
-            o.label,
-            o.hint ? h("span", { class: "hint" }, o.hint) : null
-          );
-          return btn;
-        })
-      )
-    );
+  const meter = h("p", { class: "fit-meter", "aria-live": "polite" });
+  const notice = h("p", { class: "notice", hidden: true });
+  let ticket = 0;
+  let timer;
 
   const dealBtn = h(
     "button",
@@ -93,7 +81,96 @@ function renderRitual(root, ctx) {
     "Deal three cards"
   );
 
-  const games = state?.library?.games ?? 0;
+  const paint = (fit) => {
+    clear(meter);
+    notice.hidden = true;
+    if (!fit) return;
+    if (fit.viable === 0) {
+      meter.append(h("b", {}, "Nothing fits tonight."));
+      notice.textContent = fit.blame || "Loosen one of the conditions.";
+      notice.hidden = false;
+      dealBtn.disabled = true;
+      dealBtn.textContent = "Nothing to deal";
+      return;
+    }
+    dealBtn.disabled = false;
+    dealBtn.textContent = fit.viable < 3 ? `Deal what is left (${fit.viable})` : "Deal three cards";
+    meter.append(
+      h("b", { class: "num" }, fit.viable),
+      ` of ${fit.library} games fit tonight`
+    );
+    const text = fit.relaxed;
+    if (text) {
+      notice.textContent = text;
+      notice.hidden = false;
+    }
+  };
+
+  const refresh = () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const mine = ++ticket;
+      try {
+        const fit = await api.fit({ ...chosen });
+        if (mine === ticket) paint(fit);
+      } catch {
+        if (mine === ticket) paint(null);
+      }
+    }, 120);
+  };
+
+  const pick = (key, value, group) => {
+    chosen[key] = value;
+    saveIntake(chosen);
+    group.querySelectorAll(".choice").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.value === String(value))));
+    refresh();
+  };
+
+  const question = (index, prompt, options, key) => {
+    const group = h("div", { class: "choices", role: "group", "aria-label": prompt });
+    options.forEach((o) => {
+      group.append(
+        h(
+          "button",
+          {
+            class: "choice",
+            type: "button",
+            dataset: { value: String(o.value) },
+            "aria-pressed": String(chosen[key] === o.value),
+            onclick: () => pick(key, o.value, group),
+          },
+          o.label,
+          o.hint ? h("span", { class: "hint" }, o.hint) : null
+        )
+      );
+    });
+    return h("section", { class: "question" }, h("h2", {}, h("span", { class: "index" }, index), prompt), group);
+  };
+
+  const toggles = h("div", { class: "toggles", role: "group", "aria-label": "Conditions tonight" });
+  state.conditions.forEach((c) => {
+    const btn = h(
+      "button",
+      {
+        class: "toggle",
+        type: "button",
+        dataset: { id: c.id },
+        "aria-pressed": String(chosen.conditions.includes(c.id)),
+        onclick: () => {
+          const on = !chosen.conditions.includes(c.id);
+          chosen.conditions = on ? [...chosen.conditions, c.id] : chosen.conditions.filter((x) => x !== c.id);
+          btn.setAttribute("aria-pressed", String(on));
+          saveIntake(chosen);
+          refresh();
+        },
+      },
+      h("span", { class: "box", "aria-hidden": "true" }),
+      h("span", { class: "toggle-text" }, c.label, h("span", { class: "hint" }, c.hint))
+    );
+    toggles.append(btn);
+  });
+
+  const games = state?.library?.playable ?? state?.library?.games ?? 0;
   clear(root).append(
     h(
       "div",
@@ -107,39 +184,18 @@ function renderRitual(root, ctx) {
           ? `You own ${games} games. You are about to be shown three. Two of them are going away.`
           : "Nothing in the library yet — sync your Steam client first."
       ),
-      question(
-        "How long",
-        "How much of the night is actually yours?",
-        state.budgets.map((b) => ({ label: b.label, value: b.minutes })),
-        "budget",
-        (o) => o.value
-      ),
-      question(
-        "How you are",
-        "And what state are you in?",
-        state.moods.map((m) => ({ label: m.label, hint: m.hint, value: m.id })),
-        "mood",
-        (o) => o.value
-      ),
-      question(
-        "What you want",
-        "What are you actually hungry for?",
-        state.appetites.map((a) => ({ label: a.label, hint: a.hint, value: a.id })),
-        "appetite",
-        (o) => o.value
-      ),
+      question("How long", "How much of the night is actually yours?", state.budgets.map((b) => ({ label: b.label, value: b.minutes })), "budget"),
+      question("How you are", "And what state are you in?", state.moods.map((m) => ({ label: m.label, hint: m.hint, value: m.id })), "mood"),
+      question("What you want", "What are you actually hungry for?", state.appetites.map((a) => ({ label: a.label, hint: a.hint, value: a.id })), "appetite"),
       h(
-        "div",
-        { class: "deal-bar" },
-        dealBtn,
-        h(
-          "span",
-          { class: "keyhint" },
-          "Three cards. Two passes. One game. ",
-          h("kbd", {}, "D"),
-          " deals."
-        )
+        "section",
+        { class: "question conditions" },
+        h("h2", {}, h("span", { class: "index" }, "In the way"), "Is anything in the way?"),
+        h("p", { class: "sub" }, "Optional. Tick what is true tonight; these rule games out before taste gets a vote."),
+        toggles
       ),
+      h("div", { class: "deal-bar sticky" }, dealBtn, meter, h("span", { class: "keyhint" }, "Press ", h("kbd", {}, "D"), " to deal")),
+      notice,
       games
         ? h(
             "p",
@@ -152,21 +208,49 @@ function renderRitual(root, ctx) {
     )
   );
 
-  root.querySelector(".btn")?.focus?.();
+  dealBtn.focus({ preventScroll: true });
   ctx.hotkeys = { d: () => dealBtn.click() };
+  ctx.onLeave = () => clearTimeout(timer);
+  refresh();
 }
 
 function chipsFor(card) {
   const out = [
-    card.caution
-      ? h("span", { class: "chip warn" }, card.caution)
-      : h("span", { class: "chip" }, card.session_label),
+    card.caution ? chip(card.caution, "warn") : chip(card.session_label),
   ];
-  if (!card.installed) out.push(h("span", { class: "chip warn" }, "needs install"));
-  if (card.playtime_min > 0) out.push(h("span", { class: "chip" }, `${hours(card.playtime_min)} played`));
-  else out.push(h("span", { class: "chip gold" }, "never opened"));
-  if (card.metacritic > 0) out.push(h("span", { class: "chip" }, `MC ${card.metacritic}`));
+  if (!card.installed) out.push(chip("needs install", "warn"));
+  if (card.playtime_min > 0) out.push(chip(`${hours(card.playtime_min)} played`));
+  else out.push(chip("never opened", "gold"));
+  if (card.metacritic > 0) out.push(chip(`MC ${card.metacritic}`));
+  else if (card.review_pct >= 70) out.push(chip(`${card.review_pct}% liked`));
   return out;
+}
+
+function fitRow(card) {
+  const fits = card.fits || [];
+  if (!fits.length) return null;
+  return h(
+    "ul",
+    { class: "seat-fits", "aria-label": "How it meets tonight's conditions" },
+    fits.map((f) =>
+      h(
+        "li",
+        { class: f.standing, title: f.text },
+        h("span", { class: "mark", "aria-hidden": "true" }, MARKS[f.standing]),
+        f.standing === "good" ? f.chip : f.warn
+      )
+    )
+  );
+}
+
+function tonightLine(ctx, hand) {
+  const s = ctx.state;
+  return [
+    budgetLabel(s.budgets, hand.budget),
+    labelOf(s.moods, hand.mood),
+    labelOf(s.appetites, hand.appetite),
+    ...conditionLabels(s.conditions, hand.conditions),
+  ].map((text) => h("span", {}, text));
 }
 
 /// The hand. Cards land face-down, then turn over one at a time.
@@ -175,6 +259,12 @@ export function renderHand(root, ctx, hand, { animate }) {
   const seats = h("div", { class: "hand", dataset: { count: String(hand.cards.length) } });
 
   hand.cards.forEach((card, i) => seats.append(seat(root, ctx, hand, card, i, animate, locked)));
+
+  const heading = locked
+    ? "This is the one."
+    : hand.cards.length === 2
+      ? "Two ways to spend the evening."
+      : "Three ways to spend the evening.";
 
   clear(root).append(
     h(
@@ -187,21 +277,17 @@ export function renderHand(root, ctx, hand, { animate }) {
           "div",
           {},
           h("p", { class: "eyebrow" }, locked ? "The verdict" : "Your hand"),
-          h(
-            "h1",
-            { class: "display", style: "font-size:var(--step-3)" },
-            locked ? "This is the one." : "Three ways to spend the evening."
-          )
+          h("h1", { class: "display", style: "font-size:var(--step-3)" }, heading)
         ),
-        h(
-          "p",
-          { class: "context" },
-          `${hand.budget ? hand.budget + " min" : "open evening"} · ${hand.mood} · ${hand.appetite}`
-        )
+        h("p", { class: "context" }, tonightLine(ctx, hand))
       ),
+      hand.relaxed ? h("p", { class: "notice" }, hand.relaxed) : null,
       locked ? h("p", { class: "locked-note" }, "no more passes") : null,
       seats,
       hand.note ? h("p", { class: "reroll-note" }, hand.note) : null,
+      hand.library
+        ? h("p", { class: "pool-line" }, `Dealt from ${hand.viable} of your ${hand.library} games that fit tonight.`)
+        : null,
       h(
         "div",
         { class: "deal-bar" },
@@ -216,6 +302,7 @@ export function renderHand(root, ctx, hand, { animate }) {
                   budget: hand.budget,
                   mood: hand.mood,
                   appetite: hand.appetite,
+                  conditions: hand.conditions,
                   reroll_of: hand.id,
                   exclude: hand.cards.map((c) => c.appid),
                 });
@@ -256,17 +343,23 @@ export function renderHand(root, ctx, hand, { animate }) {
     )
   );
 
-  ctx.hotkeys = {};
+  ctx.hotkeys = { d: () => root.querySelector(".deal-bar .btn")?.click() };
   hand.cards.forEach((card, i) => {
-    ctx.hotkeys[String(i + 1)] = () => play(root, ctx, hand, card);
+    ctx.hotkeys[String(i + 1)] = () => play(hand, card);
     if (!locked) ctx.hotkeys["qwe"[i]] = () => pass(root, ctx, hand, card, i);
   });
 }
 
+function otherReason(card) {
+  const reason = (card.reasons || []).find((r) => r.text !== card.verdict && !r.kind.startsWith("fit:"));
+  return reason ? reason.text : null;
+}
+
 function seat(root, ctx, hand, card, index, animate, locked) {
+  const extra = otherReason(card);
   const face = h(
     "div",
-    { class: "face face-front" },
+    { class: "face face-front", dataset: { initial: card.name.trim().charAt(0) } },
     art(card.appid, "capsule", card.name),
     h(
       "div",
@@ -277,10 +370,16 @@ function seat(root, ctx, hand, card, index, animate, locked) {
         {},
         h("h2", { class: "card-title" }, card.name),
         h("p", { class: "card-verdict" }, card.verdict),
+        extra ? h("p", { class: "card-also" }, extra) : null,
         h("div", { class: "chips" }, chipsFor(card))
       )
     )
   );
+
+  face.addEventListener("art-banner", () => {
+    face.classList.add("banner-art");
+    face.style.setProperty("--backdrop", `url(/img/${card.appid}/header)`);
+  });
 
   const cardEl = h(
     "div",
@@ -291,17 +390,18 @@ function seat(root, ctx, hand, card, index, animate, locked) {
   if (animate) setTimeout(() => cardEl.classList.add("revealed"), 120 + index * 190);
   else cardEl.classList.add("revealed");
 
-  const seatEl = h(
+  return h(
     "div",
     { class: "seat" },
     cardEl,
+    fitRow(card),
     h("p", { class: "seat-blurb" }, card.slot_blurb),
     h(
       "div",
       { class: "seat-actions" },
       h(
         "button",
-        { class: "btn go", type: "button", onclick: () => play(root, ctx, hand, card) },
+        { class: "btn go", type: "button", onclick: () => play(hand, card) },
         locked ? "Play it" : `Play (${index + 1})`
       ),
       locked
@@ -316,18 +416,12 @@ function seat(root, ctx, hand, card, index, animate, locked) {
             "Pass"
           )
     ),
-    h(
-      "button",
-      { class: "linkish", type: "button", onclick: () => why(card) },
-      "Why this?"
-    )
+    h("button", { class: "linkish", type: "button", onclick: () => showGame(card) }, "Why this?")
   );
-  return seatEl;
 }
 
 async function pass(root, ctx, hand, card, index) {
-  const seats = root.querySelectorAll(".seat");
-  const target = seats[index];
+  const target = root.querySelectorAll(".seat")[index];
   if (target) target.classList.add("leaving");
   try {
     const next = await new Promise((resolve, reject) =>
@@ -341,7 +435,7 @@ async function pass(root, ctx, hand, card, index) {
   }
 }
 
-async function play(root, ctx, hand, card) {
+async function play(hand, card) {
   try {
     const { session } = await api.startSession({
       appid: card.appid,
@@ -349,6 +443,7 @@ async function play(root, ctx, hand, card) {
       budget: hand.budget,
       mood: hand.mood,
       appetite: hand.appetite,
+      conditions: hand.conditions,
     });
     sessionStorage.removeItem(HAND);
     handoff(card.appid, session.can_launch_here);
@@ -370,88 +465,4 @@ export async function handoff(appid, canLaunchHere) {
     }
   }
   window.location.href = `steam://rungameid/${appid}`;
-}
-
-function axis(label, value) {
-  return h(
-    "div",
-    { class: "axis" },
-    h("span", {}, label),
-    h("div", { class: "track" }, h("i", { style: `width:${Math.round(value * 100)}%` }))
-  );
-}
-
-export async function why(card) {
-  sheet((close) => {
-    const body = h(
-      "div",
-      {},
-      h("p", { class: "eyebrow" }, card.slot_label),
-      h("h2", {}, card.name),
-      h("p", { class: "muted" }, card.short_desc || "No description synced yet."),
-      h(
-        "ul",
-        { class: "reason-list" },
-        (card.reasons || []).map((r) => h("li", {}, r.text)),
-        (card.reasons || []).length ? null : h("li", {}, "Nothing decisive — the deck simply liked it.")
-      ),
-      h("div", { class: "axes" }, h("p", { class: "spinner" }, "reading the game…")),
-      h(
-        "div",
-        { class: "row", style: "margin-top:1.4rem" },
-        h(
-          "a",
-          { class: "btn ghost", href: `https://store.steampowered.com/app/${card.appid}`, target: "_blank", rel: "noreferrer" },
-          "Store page"
-        ),
-        h(
-          "button",
-          {
-            class: "btn ghost danger",
-            type: "button",
-            onclick: async () => {
-              await api.amnesty(card.appid, true);
-              toast(`${card.name} retired. It will not be offered again.`);
-              close();
-            },
-          },
-          "Retire it"
-        ),
-        h(
-          "button",
-          {
-            class: "btn ghost",
-            type: "button",
-            onclick: async () => {
-              await api.pin(card.appid, true);
-              toast(`${card.name} pinned — it stays in the deck until you play it.`);
-              close();
-            },
-          },
-          "Pin it"
-        ),
-        h("button", { class: "btn ghost", type: "button", onclick: close }, "Close")
-      )
-    );
-
-    api.game(card.appid).then((g) => {
-      const box = body.querySelector(".axes");
-      clear(box).append(
-        axis("Pace", g.shape.pace),
-        axis("Thinking", g.shape.brain),
-        axis("Story", g.shape.story),
-        axis("Company", g.shape.social),
-        axis("Calm", g.shape.chill),
-        h(
-          "p",
-          { class: "keyhint", style: "margin-top:0.8rem" },
-          `${g.shape.archetype} · typical sitting ${g.shape.session_minutes} min · about ${Math.round(
-            g.shape.completion_hours
-          )}h to see it through`
-        )
-      );
-    }).catch(() => {});
-
-    return body;
-  });
 }

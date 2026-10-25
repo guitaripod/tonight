@@ -80,7 +80,7 @@ chk "unpin" "j /api/pin \"{\\\"appid\\\":$W,\\\"on\\\":false}\" | jq -e .ok"
 chk "amnesty candidates offered" "[ $(g /api/amnesty/candidates | jq '.candidates|length') -gt 0 ]"
 
 echo "== shelves and search"
-for s in installed sealed abandoned nearly quick evening together ghosts loved passed expensive retired; do
+for s in installed sealed abandoned nearly quick evening together ghosts loved passed expensive retired quiet pausable couch offline gentle deck; do
   chk "shelf $s responds" "g /api/shelf/$s | jq -e '.items|type == \"array\"'"
 done
 chk "search finds a known game" "g '/api/search?q=half-life' | jq -e '.items|length > 0'"
@@ -90,6 +90,36 @@ echo "== manual session length override"
 chk "set override" "j /api/game/$W/session-length '{\"minutes\":25}' | jq -e .ok"
 chk "override is applied" "g /api/game/$W | jq -e '.shape.session_minutes == 25'"
 chk "clear override" "j /api/game/$W/session-length '{\"minutes\":null}' | jq -e .ok"
+
+echo "== conditions"
+chk "state lists the conditions" "[ \$(g /api/state | jq '.conditions|length') -eq 8 ]"
+chk "state counts playable games" "g /api/state | jq -e '.library.playable > 0'"
+FIT0=$(j /api/fit '{"budget":0,"mood":"mellow","appetite":"surprise"}')
+FITQ=$(j /api/fit '{"budget":0,"mood":"mellow","appetite":"surprise","conditions":["quiet"]}')
+chk "fit counts the library" "[ $(echo "$FIT0" | jq .viable) -gt 0 ]"
+chk "sound taken narrows the pool" "[ $(echo "$FITQ" | jq .viable) -lt $(echo "$FIT0" | jq .viable) ]"
+chk "unknown conditions are ignored" "[ $(j /api/fit '{"conditions":["nonsense"]}' | jq .viable) -eq $(echo "$FIT0" | jq .viable) ]"
+HQ=$(j /api/deal '{"budget":0,"mood":"mellow","appetite":"surprise","conditions":["quiet","gentle"]}')
+chk "conditioned hand has cards" "[ $(echo "$HQ" | jq '.cards|length') -gt 0 ]"
+chk "every card carries its condition fits" "printf %s \"\$HQ\" | jq -e '[.cards[] | (.fits|map(.id)|sort) == [\"gentle\",\"quiet\"]] | all'"
+chk "no card fails sound taken badly" "printf %s \"\$HQ\" | jq -e '[.cards[].fits[] | select(.id==\"quiet\") | .value >= 0.1] | all'"
+chk "hand remembers its conditions" "g /api/hand/$(echo "$HQ" | jq -r .id) | jq -e '.conditions == [\"quiet\",\"gentle\"]'"
+chk "hand reports the pool it was dealt from" "printf %s \"\$HQ\" | jq -e '.viable > 0 and .library >= .viable'"
+CA=$(echo "$HQ" | jq -r '.cards[0].appid')
+chk "card breaks its score into parts" "printf %s \"\$HQ\" | jq -e '.cards[0].parts|length > 0'"
+chk "game detail returns a fit per condition" "[ $(g /api/game/$CA | jq '.fits|length') -eq 8 ]"
+chk "game detail returns tags" "g /api/game/$CA | jq -e '.meta.tags|type == \"array\"'"
+SC=$(j /api/session/start "{\"appid\":$CA,\"budget\":0,\"mood\":\"mellow\",\"appetite\":\"surprise\",\"conditions\":[\"quiet\"]}")
+chk "session keeps its conditions" "printf %s \"\$SC\" | jq -e '.session.conditions == [\"quiet\"]'"
+chk "bailing for sound teaches the engine" "j /api/session/end \"{\\\"id\\\":$(echo "$SC" | jq -r .session.id),\\\"verdict\\\":\\\"bounced\\\",\\\"reason\\\":\\\"sound\\\"}\" | jq -e .ok"
+chk "the sound override was recorded" "g /api/game/$CA | jq -e '.overrides.sound == 0.85'"
+chk "log shows the reason" "g /api/sessions | jq -e '.sessions[0].reason == \"Needed the sound\"'"
+chk "clear the override" "j /api/game/$CA/trait '{\"name\":\"sound\",\"value\":null}' | jq -e .ok"
+chk "override is gone" "g /api/game/$CA | jq -e '(.overrides.sound // null) == null'"
+chk "unknown trait is refused" "j /api/game/$CA/trait '{\"name\":\"nonsense\",\"value\":0.5}' | jq -e .error"
+chk "rebound honours conditions" "j /api/rebound '{\"budget\":0,\"mood\":\"fried\",\"appetite\":\"surprise\",\"conditions\":[\"quiet\"],\"exclude\":[]}' | jq -e '.fits|length == 1'"
+chk "vault shelves are grouped" "g /api/shelves | jq -e '[.shelves[].group] | all(. != null)'"
+chk "library readiness is reported" "g /api/reckoning | jq -e '.readiness|length == 7'"
 
 echo "== reckoning, export, artwork, guards"
 chk "reckoning computes" "g /api/reckoning | jq -e '.owned > 0'"

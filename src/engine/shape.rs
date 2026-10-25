@@ -637,7 +637,7 @@ fn apply_signals(s: &mut Shape, meta: &Meta, personal: &Personal) {
     let mut ballot = signals::collect(meta);
     let archetype = s.archetype.clone();
     for (axis, value) in archetype_prior(&archetype) {
-        ballot.cast(*axis, *value, 0.8, &archetype);
+        ballot.cast(*axis, *value, 0.8, "");
     }
 
     s.pace = ballot.settle(Axis::Pace, s.pace, 1.4).value;

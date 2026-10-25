@@ -93,9 +93,10 @@ async fn state_handler(State(st): State<AppState>) -> ApiResult<Json<Value>> {
         )?)
     })?;
     let has_key = !db.setting_or("steam_api_key", "").trim().is_empty();
+    let playable = load::candidates(db)?.iter().filter(|c| load::is_game(c)).count();
     Ok(Json(json!({
-        "library": { "games": counts.0, "enriched": counts.1, "installed": counts.2,
-                     "retired": counts.3, "sessions": counts.4 },
+        "library": { "games": counts.0, "playable": playable, "enriched": counts.1,
+                     "installed": counts.2, "retired": counts.3, "sessions": counts.4 },
         "steam_root": st.cfg.steam_root.as_ref().map(|p| p.display().to_string()),
         "data_dir": st.cfg.data_dir.display().to_string(),
         "settings": {
@@ -105,7 +106,6 @@ async fn state_handler(State(st): State<AppState>) -> ApiResult<Json<Value>> {
             "first_impression_minutes": db.setting_i64("first_impression_minutes", 12),
             "hours_per_week": db.setting_or("hours_per_week", ""),
             "store_cc": db.setting_or("store_cc", "us"),
-            "reroll_friction": db.setting_bool("reroll_friction", true),
         },
         "launch_possible": launch::available(),
         "last_sync": db.setting_i64("last_sync", 0),
@@ -134,8 +134,6 @@ struct SettingsBody {
     hours_per_week: Option<String>,
     #[serde(default)]
     store_cc: Option<String>,
-    #[serde(default)]
-    reroll_friction: Option<bool>,
 }
 
 async fn save_settings(
@@ -161,10 +159,6 @@ async fn save_settings(
     }
     if let Some(v) = body.store_cc {
         st.db.set_setting("store_cc", v.trim())?;
-    }
-    if let Some(v) = body.reroll_friction {
-        st.db
-            .set_setting("reroll_friction", if v { "1" } else { "0" })?;
     }
     Ok(Json(json!({"ok": true})))
 }

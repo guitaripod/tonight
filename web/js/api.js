@@ -26,6 +26,7 @@ export const api = {
   cancelSync: () => post("/api/sync/cancel"),
 
   deal: (body) => post("/api/deal", body),
+  fit: (body) => post("/api/fit", body),
   hand: (id) => get(`/api/hand/${id}`),
   pass: (id, appid) => post(`/api/hand/${id}/pass`, { appid }),
   rebound: (body) => post("/api/rebound", body),
@@ -33,7 +34,7 @@ export const api = {
   session: () => get("/api/session"),
   startSession: (body) => post("/api/session/start", body),
   impression: (id, answer) => post("/api/session/impression", { id, answer }),
-  endSession: (id, verdict) => post("/api/session/end", { id, verdict }),
+  endSession: (id, verdict, reason) => post("/api/session/end", { id, verdict, reason }),
   sessions: () => get("/api/sessions"),
   launch: (appid) => post("/api/launch", { appid }),
 
@@ -48,6 +49,7 @@ export const api = {
 
   game: (appid) => get(`/api/game/${appid}`),
   setSessionLength: (appid, minutes) => post(`/api/game/${appid}/session-length`, { minutes }),
+  setTrait: (appid, name, value) => post(`/api/game/${appid}/trait`, { name, value }),
 
   shelves: () => get("/api/shelves"),
   shelf: (id, limit = 60) => get(`/api/shelf/${id}?limit=${limit}`),

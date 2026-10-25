@@ -8,6 +8,7 @@ use serde::Serialize;
 #[derive(Debug, Serialize)]
 pub struct ShelfDef {
     pub id: &'static str,
+    pub group: &'static str,
     pub title: &'static str,
     pub question: &'static str,
 }
@@ -15,91 +16,109 @@ pub struct ShelfDef {
 pub const SHELVES: &[ShelfDef] = &[
     ShelfDef {
         id: "installed",
+        group: "Right now",
         title: "Ready right now",
         question: "Already on the disk. No download, no excuse.",
     },
     ShelfDef {
         id: "sealed",
+        group: "The pile",
         title: "Still sealed",
         question: "Bought, filed, never once opened.",
     },
     ShelfDef {
         id: "abandoned",
+        group: "The pile",
         title: "You walked out early",
         question: "Under two hours in, then silence.",
     },
     ShelfDef {
         id: "nearly",
+        group: "The pile",
         title: "Nearly there",
         question: "One or two evenings from being finished.",
     },
     ShelfDef {
         id: "quick",
+        group: "Right now",
         title: "Under forty minutes",
         question: "For the nights where you only have a sliver.",
     },
     ShelfDef {
         id: "evening",
+        group: "Right now",
         title: "Clear the evening",
         question: "These want the whole night and will take it.",
     },
     ShelfDef {
         id: "together",
+        group: "For tonight's conditions",
         title: "If someone's over",
         question: "Co-op, split-screen, or something to watch.",
     },
     ShelfDef {
         id: "quiet",
+        group: "For tonight's conditions",
         title: "Plays under a podcast",
         question: "Nothing in it needs the sound. Put something else on.",
     },
     ShelfDef {
         id: "pausable",
+        group: "For tonight's conditions",
         title: "Drop it any time",
         question: "Saves anywhere, pauses cleanly, forgives an interruption.",
     },
     ShelfDef {
         id: "couch",
+        group: "For tonight's conditions",
         title: "Couch and controller",
         question: "Made for a gamepad and a big screen.",
     },
     ShelfDef {
         id: "offline",
+        group: "For tonight's conditions",
         title: "No internet needed",
         question: "Works with the router unplugged.",
     },
     ShelfDef {
         id: "gentle",
+        group: "For tonight's conditions",
         title: "Safe before bed",
         question: "Nothing frightening, nothing loud.",
     },
     ShelfDef {
         id: "deck",
+        group: "For tonight's conditions",
         title: "Deck verified",
         question: "Valve tested these on the Steam Deck and they passed.",
     },
     ShelfDef {
         id: "ghosts",
+        group: "The pile",
         title: "Ghosts",
         question: "Three years or older, and you have never met them.",
     },
     ShelfDef {
         id: "loved",
+        group: "Your history",
         title: "You loved these once",
         question: "Old friends. They will still take you back.",
     },
     ShelfDef {
         id: "passed",
+        group: "The pile",
         title: "The ones you keep passing on",
         question: "The deck offered. You said no. Repeatedly.",
     },
     ShelfDef {
         id: "expensive",
+        group: "The pile",
         title: "Money on the shelf",
         question: "What the unopened ones cost at list price.",
     },
     ShelfDef {
         id: "retired",
+        group: "Your history",
         title: "Retired",
         question: "Granted amnesty. Out of the deck, off your conscience.",
     },
@@ -185,10 +204,7 @@ fn by_condition(
 
 pub fn shelf(db: &Db, id: &str, limit: usize) -> Result<Vec<ShelfItem>> {
     let all = load::candidates(db)?;
-    let named: Vec<&Candidate> = all
-        .iter()
-        .filter(|c| !c.game.name.trim().is_empty())
-        .collect();
+    let named: Vec<&Candidate> = all.iter().filter(|c| load::is_game(c)).collect();
     let live: Vec<&&Candidate> = named.iter().filter(|c| !c.prefs.amnesty).collect();
     let this_year = 1970 + (now() / 31_557_600);
 
@@ -340,8 +356,8 @@ pub fn shelf(db: &Db, id: &str, limit: usize) -> Result<Vec<ShelfItem>> {
                 })
                 .collect()
         }
-        "quiet" => by_condition(&live, "quiet", 0.62, |_| true),
-        "pausable" => by_condition(&live, "interrupt", 0.78, |_| true),
+        "quiet" => by_condition(&live, "quiet", conditions::GOOD, |_| true),
+        "pausable" => by_condition(&live, "interrupt", conditions::GOOD, |_| true),
         "couch" => by_condition(&live, "couch", 0.85, |c| {
             c.shape.controller.confidence > 0.4
         }),

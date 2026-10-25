@@ -143,6 +143,14 @@ pub const BAIL_REASONS: &[(&str, &str)] = &[
     ("bad", "Just not good"),
 ];
 
+pub fn reason_label(id: &str) -> String {
+    BAIL_REASONS
+        .iter()
+        .find(|(k, _)| *k == id)
+        .map(|(_, label)| label.to_string())
+        .unwrap_or_else(|| id.to_string())
+}
+
 /// Ends a session with a verdict. Bailing out is a first-class, guilt-free outcome
 /// and teaches the model just as much as loving it does, provided it knows why.
 pub fn end(db: &Db, id: i64, verdict: &str, reason: Option<&str>) -> Result<i64> {
@@ -238,7 +246,7 @@ pub fn recent(db: &Db, limit: usize) -> Result<Vec<HistoryRow>> {
                 started_at: r.get(2)?,
                 minutes: r.get(3)?,
                 verdict: r.get(4)?,
-                reason: r.get(5)?,
+                reason: r.get::<_, Option<String>>(5)?.map(|id| reason_label(&id)),
                 conditions: r
                     .get::<_, Option<String>>(6)?
                     .and_then(|j| serde_json::from_str(&j).ok())

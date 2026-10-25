@@ -1,8 +1,43 @@
 import { api } from "../api.js";
 import { clear, h, thumb, toast } from "../ui.js";
-import { why } from "./table.js";
+import { showGame } from "./game.js";
 
 let shelfDefs = null;
+
+function shelfNav() {
+  const groups = [...new Set(shelfDefs.map((s) => s.group))];
+  return h(
+    "div",
+    { class: "shelf-groups" },
+    groups.map((group) =>
+      h(
+        "section",
+        { class: "shelf-group" },
+        h("p", { class: "mini-head" }, group),
+        h(
+          "div",
+          { class: "shelf-nav" },
+          shelfDefs
+            .filter((s) => s.group === group)
+            .map((s) =>
+              h(
+                "button",
+                {
+                  class: "linkish",
+                  type: "button",
+                  onclick: () => {
+                    location.hash = `#/shelves/${s.id}`;
+                  },
+                },
+                s.title,
+                h("span", { class: "q" }, s.question)
+              )
+            )
+        )
+      )
+    )
+  );
+}
 
 export async function renderShelves(root, ctx, shelfId) {
   if (!shelfDefs) shelfDefs = (await api.shelves()).shelves;
@@ -42,24 +77,7 @@ export async function renderShelves(root, ctx, shelfId) {
       h("p", { class: "eyebrow" }, "The vault"),
       h("h1", { class: "display", style: "font-size:var(--step-3)" }, "No wall of boxes. Ask a question instead."),
       input,
-      h(
-        "div",
-        { class: "shelf-nav" },
-        shelfDefs.map((s) =>
-          h(
-            "button",
-            {
-              class: "linkish",
-              type: "button",
-              onclick: () => {
-                location.hash = `#/shelves/${s.id}`;
-              },
-            },
-            s.title,
-            h("span", { class: "q" }, s.question)
-          )
-        )
-      ),
+      shelfNav(),
       results
     )
   );
@@ -118,11 +136,12 @@ function renderList(container, items, heading, sub) {
                 class: "btn ghost",
                 type: "button",
                 onclick: () =>
-                  why({
+                  showGame({
                     appid: it.appid,
                     name: it.name,
                     slot_label: it.amnesty ? "Retired" : "From the vault",
                     short_desc: it.short_desc,
+                    tags: it.tags,
                     reasons: [{ text: it.detail }],
                   }),
               },

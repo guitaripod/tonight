@@ -29,13 +29,31 @@ export function art(appid, kind = "capsule", alt = "") {
     loading: "lazy",
     decoding: "async",
   });
-  img.addEventListener("error", () => img.classList.add("missing"), { once: true });
+  img.addEventListener("error", () => {
+    if (kind === "capsule" && !img.dataset.fallback) {
+      img.dataset.fallback = "1";
+      img.classList.add("banner");
+      img.src = `/img/${appid}/header`;
+      img.dispatchEvent(new CustomEvent("art-banner", { bubbles: true }));
+      return;
+    }
+    img.classList.add("missing");
+  });
   return img;
 }
 
+/// Games from before portrait artwork existed only have a landscape header, so a
+/// failed capsule falls back to it, cropped to the middle.
 export function thumb(appid, alt = "") {
   const img = h("img", { class: "thumb", src: `/img/${appid}/capsule`, alt, loading: "lazy" });
-  img.addEventListener("error", () => { img.style.visibility = "hidden"; }, { once: true });
+  img.addEventListener("error", () => {
+    if (!img.dataset.fallback) {
+      img.dataset.fallback = "1";
+      img.src = `/img/${appid}/header`;
+      return;
+    }
+    img.style.visibility = "hidden";
+  });
   return img;
 }
 
@@ -53,12 +71,36 @@ export function sheet(build) {
   const body = clear(document.getElementById("sheetBody"));
   body.append(build(() => dlg.close()));
   if (!dlg.open) dlg.showModal();
+  dlg.scrollTop = 0;
   return dlg;
+}
+
+export function wireSheet() {
+  const dlg = document.getElementById("sheet");
+  dlg.addEventListener("click", (e) => {
+    if (e.target === dlg) dlg.close();
+  });
+}
+
+export function chip(text, kind = "", title = "") {
+  return h("span", { class: `chip ${kind}`.trim(), title: title || null }, text);
+}
+
+export function labelOf(list, id, fallback = id) {
+  return (list || []).find((x) => x.id === id)?.label ?? fallback;
+}
+
+export function budgetLabel(budgets, minutes) {
+  return (budgets || []).find((b) => b.minutes === minutes)?.label ?? (minutes ? `${minutes} minutes` : "No idea how long");
+}
+
+export function conditionLabels(defs, ids) {
+  return (ids || []).map((id) => labelOf(defs, id));
 }
 
 export function hours(mins) {
   if (!mins) return "0h";
-  if (mins < 60) return `${mins}m`;
+  if (mins < 60) return `${mins} min`;
   return `${(mins / 60).toFixed(mins < 600 ? 1 : 0)}h`;
 }
 

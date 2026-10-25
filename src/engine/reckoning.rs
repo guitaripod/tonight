@@ -63,7 +63,7 @@ fn readiness(real: &[&&Candidate]) -> Vec<Readiness> {
                 .iter()
                 .filter(|c| {
                     conditions::evaluate(c, d.id)
-                        .map(|f| f.value >= 0.6)
+                        .map(|f| f.value >= conditions::GOOD)
                         .unwrap_or(false)
                 })
                 .count() as i64;
@@ -90,10 +90,7 @@ fn years_phrase(y: f64) -> String {
 pub fn compute(db: &Db) -> Result<Reckoning> {
     let all = load::candidates(db)?;
     let live: Vec<&Candidate> = all.iter().filter(|c| !c.prefs.amnesty).collect();
-    let real: Vec<&&Candidate> = live
-        .iter()
-        .filter(|c| !c.game.name.trim().is_empty())
-        .collect();
+    let real: Vec<&&Candidate> = live.iter().filter(|c| load::is_game(c)).collect();
 
     let owned = real.len() as i64;
     let untouched = real.iter().filter(|c| c.game.playtime_min == 0).count() as i64;
@@ -205,7 +202,7 @@ pub fn compute(db: &Db) -> Result<Reckoning> {
 
     let most_passed = real
         .iter()
-        .filter(|c| c.history.passes > 0)
+        .filter(|c| c.history.passes >= 2)
         .max_by_key(|c| c.history.passes)
         .map(|c| Named {
             appid: c.game.appid,
@@ -260,7 +257,12 @@ pub fn compute(db: &Db) -> Result<Reckoning> {
             "SELECT bail_reason, COUNT(*) FROM sessions
              WHERE bail_reason IS NOT NULL GROUP BY bail_reason ORDER BY COUNT(*) DESC",
         )?;
-        let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        let rows = st.query_map([], |r| {
+            Ok((
+                crate::engine::session::reason_label(&r.get::<_, String>(0)?),
+                r.get::<_, i64>(1)?,
+            ))
+        })?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     })?;
 

@@ -1,4 +1,3 @@
-use crate::engine::signals::Trait;
 use crate::model::Candidate;
 use serde::{Deserialize, Serialize};
 
@@ -137,8 +136,11 @@ impl Fit {
     }
 }
 
+/// The fit at which a game counts as working well, not merely working.
+pub const GOOD: f64 = 0.7;
+
 fn standing(value: f64) -> Standing {
-    if value >= 0.7 {
+    if value >= GOOD {
         Standing::Good
     } else if value >= 0.42 {
         Standing::Okay
@@ -147,17 +149,8 @@ fn standing(value: f64) -> Standing {
     }
 }
 
-fn because(t: &Trait, take: usize) -> String {
-    t.because
-        .iter()
-        .take(take)
-        .cloned()
-        .collect::<Vec<_>>()
-        .join(" · ")
-}
-
-fn with_reasons(lead: &str, t: &Trait) -> String {
-    let why = because(t, 2);
+fn with_reasons(lead: &str, labels: &[String]) -> String {
+    let why = labels.iter().take(2).cloned().collect::<Vec<_>>().join(" · ");
     if why.is_empty() {
         lead.to_string()
     } else {
@@ -174,9 +167,9 @@ pub fn evaluate(c: &Candidate, id: &str) -> Option<Fit> {
             let risk = s.sound.assume(0.62);
             let fit = 1.0 - risk.powf(1.3);
             let text = match standing(fit) {
-                Standing::Good => with_reasons("Nothing in it needs the sound", &s.sound),
-                Standing::Okay => with_reasons("Playable muted, but it leans on audio", &s.sound),
-                Standing::Poor => with_reasons("It needs its sound", &s.sound),
+                Standing::Good => with_reasons("Nothing in it needs the sound", &s.sound.low),
+                Standing::Okay => with_reasons("Playable muted, but it leans on audio", &s.sound.high),
+                Standing::Poor => with_reasons("It needs its sound", &s.sound.high),
             };
             Fit::new(def, fit, text)
         }
@@ -184,24 +177,21 @@ pub fn evaluate(c: &Candidate, id: &str) -> Option<Fit> {
             let fit = s.pause.assume(0.45);
             let text = match standing(fit) {
                 Standing::Good => {
-                    with_reasons("You can drop it mid-way and lose nothing", &s.pause)
+                    with_reasons("You can drop it mid-way and lose nothing", &s.pause.high)
                 }
-                Standing::Okay => with_reasons(
-                    "Pausable, though a run or a save point may cost you",
-                    &s.pause,
-                ),
-                Standing::Poor => with_reasons("It will not wait for you", &s.pause),
+                Standing::Okay => with_reasons("Pausable, though a run or a save point may cost you", &s.pause.low),
+                Standing::Poor => with_reasons("It will not wait for you", &s.pause.low),
             };
             Fit::new(def, fit, text)
         }
         "couch" => {
             let fit = s.controller.assume(0.4);
             let text = match standing(fit) {
-                Standing::Good => with_reasons("Made for a gamepad", &s.controller),
+                Standing::Good => with_reasons("Made for a gamepad", &s.controller.high),
                 Standing::Okay => {
-                    with_reasons("Works on a controller, with some friction", &s.controller)
+                    with_reasons("Works on a controller, with some friction", &s.controller.low)
                 }
-                Standing::Poor => with_reasons("Wants a keyboard and mouse", &s.controller),
+                Standing::Poor => with_reasons("Wants a keyboard and mouse", &s.controller.low),
             };
             Fit::new(def, fit, text)
         }
@@ -210,7 +200,7 @@ pub fn evaluate(c: &Candidate, id: &str) -> Option<Fit> {
             let watchable = 0.55 * (0.6 * s.story + 0.4 * (1.0 - s.pace));
             let fit = shared.max(watchable);
             let text = if shared >= 0.6 {
-                with_reasons("Built for one screen and two people", &s.couch)
+                with_reasons("Built for one screen and two people", &s.couch.high)
             } else if watchable >= 0.4 {
                 "A good one to watch together, even if only one of you plays".to_string()
             } else {
@@ -236,9 +226,9 @@ pub fn evaluate(c: &Candidate, id: &str) -> Option<Fit> {
         "offline" => {
             let fit = 1.0 - s.online.assume(0.3);
             let text = match standing(fit) {
-                Standing::Good => with_reasons("Runs without a connection", &s.online),
-                Standing::Okay => with_reasons("Mostly offline, with online parts", &s.online),
-                Standing::Poor => with_reasons("Needs a connection to play", &s.online),
+                Standing::Good => with_reasons("Runs without a connection", &s.online.low),
+                Standing::Okay => with_reasons("Mostly offline, with online parts", &s.online.high),
+                Standing::Poor => with_reasons("Needs a connection to play", &s.online.high),
             };
             Fit::new(def, fit, text)
         }
@@ -257,8 +247,8 @@ pub fn evaluate(c: &Candidate, id: &str) -> Option<Fit> {
             let fit = 1.0 - (s.scare.assume(0.12) * 1.25).min(1.0);
             let text = match standing(fit) {
                 Standing::Good => "Nothing frightening in it".to_string(),
-                Standing::Okay => with_reasons("Tense in places", &s.scare),
-                Standing::Poor => with_reasons("Genuinely frightening", &s.scare),
+                Standing::Okay => with_reasons("Tense in places", &s.scare.high),
+                Standing::Poor => with_reasons("Genuinely frightening", &s.scare.high),
             };
             Fit::new(def, fit, text)
         }

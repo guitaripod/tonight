@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { clear, h, toast } from "./ui.js";
+import { clear, h, sheet, toast, wireSheet } from "./ui.js";
 import { renderTable } from "./views/table.js";
 import { renderSession } from "./views/session.js";
 import { renderReckoning, renderHistory } from "./views/reckoning.js";
@@ -20,6 +20,23 @@ const NAV = [
   ["#/reckoning", "Reckoning"],
   ["#/settings", "Settings"],
 ];
+
+const TITLES = {
+  "#/": "Table",
+  "#/session": "On the clock",
+  "#/shelves": "Vault",
+  "#/duel": "This or that",
+  "#/reckoning": "Reckoning",
+  "#/history": "Log",
+  "#/settings": "Settings",
+};
+
+function paintTitle(hash) {
+  const key = Object.keys(TITLES)
+    .filter((k) => hash === k || (k !== "#/" && hash.startsWith(k)))
+    .sort((a, b) => b.length - a.length)[0];
+  document.title = key && key !== "#/" ? `${TITLES[key]} · tonight` : "tonight";
+}
 
 function paintNav(hash) {
   const active = (href) => (href === "#/" ? hash === "#/" || hash === "#/session" : hash.startsWith(href));
@@ -51,6 +68,7 @@ async function route() {
   }
   ctx.hotkeys = {};
   paintNav(hash);
+  paintTitle(hash);
   const hit = routes.find(([re]) => re.test(hash));
   if (!hit) {
     location.hash = "#/";
@@ -119,8 +137,39 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+const KEYS = [
+  [["D"], "Deal a hand, or deal again"],
+  [["1", "2", "3"], "Play that card"],
+  [["Q", "W", "E"], "Pass that card"],
+  [["/"], "Search the vault"],
+  [["←", "→"], "Choose a side in this-or-that"],
+  [["X"], "End the session"],
+  [["?"], "Show this list"],
+];
+
 function help() {
-  toast("1/2/3 play a card · Q/W/E pass · D deal · / search · X end session", 6000);
+  sheet((close) =>
+    h(
+      "div",
+      {},
+      h("p", { class: "eyebrow" }, "Keyboard"),
+      h("h2", {}, "Everything has a key."),
+      h(
+        "dl",
+        { class: "keys" },
+        KEYS.map(([keys, text]) => [
+          h("dt", {}, keys.map((k) => h("kbd", {}, k))),
+          h("dd", {}, text),
+        ])
+      ),
+      h(
+        "p",
+        { class: "muted", style: "margin-top:1.2rem" },
+        "Tick what is true about tonight on the table — sound taken, interruptions, couch, no internet — and games that cannot work are ruled out before taste gets a vote."
+      ),
+      h("div", { class: "row", style: "margin-top:1.2rem" }, h("button", { class: "btn ghost", type: "button", onclick: close }, "Close"))
+    )
+  );
 }
 
 async function boot() {
@@ -130,6 +179,7 @@ async function boot() {
     clear(root).append(h("p", { class: "verdict-line" }, `Cannot reach the server: ${e.message}`));
     return;
   }
+  wireSheet();
   watchSync();
   window.addEventListener("hashchange", route);
   await route();

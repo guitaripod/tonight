@@ -156,8 +156,11 @@ pub struct Card {
     pub verdict: String,
     pub caution: Option<String>,
     pub reasons: Vec<Reason>,
+    #[serde(default)]
     pub fits: Vec<crate::engine::conditions::Fit>,
+    #[serde(default)]
     pub parts: Vec<crate::engine::score::Part>,
+    #[serde(default)]
     pub gate: f64,
     pub session_label: String,
     pub session_minutes: i64,
@@ -165,8 +168,10 @@ pub struct Card {
     pub last_played: i64,
     pub installed: bool,
     pub genres: Vec<String>,
+    #[serde(default)]
     pub tags: Vec<String>,
     pub metacritic: i64,
+    #[serde(default)]
     pub review_pct: i64,
     pub short_desc: String,
     pub achievements_total: i64,
