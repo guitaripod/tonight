@@ -475,7 +475,7 @@ pub fn score(c: &Candidate, ctx: &Context) -> Scored {
         .iter()
         .map(|f| (0.2 + 0.8 * f.value).powf(1.4))
         .product();
-    for f in &fits {
+    for f in fits.iter().filter(|f| f.id != "installed") {
         if f.value >= 0.72 {
             reasons.push(Reason {
                 weight: 0.6 * f.value,

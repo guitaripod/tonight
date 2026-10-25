@@ -163,38 +163,40 @@ pub fn deck<'a>(
             .collect()
     };
 
-    let mut rung = 0;
+    let strict_len = survivors(0).len();
     let mut kept = survivors(0);
+    let mut rung = 0;
     while kept.len() < MIN_POOL && rung + 1 < LADDER.len() {
         rung += 1;
         kept = survivors(rung);
     }
 
-    let soft_active = conds.iter().any(|d| d.id != "installed");
     let mut relaxed = None;
-    if rung > 0 && !kept.is_empty() {
+    if kept.len() > strict_len {
         relaxed = Some(loosened_note(&scored, &conds, req.budget, &passes));
     }
-    if kept.len() < MIN_HAND && !soft_active {
-        let strict_ok: Vec<usize> = scored
+
+    if kept.len() < MIN_HAND {
+        let loosest = LADDER[LADDER.len() - 1].0;
+        let ignoring_time: Vec<usize> = scored
             .iter()
             .enumerate()
-            .filter(|(_, (_, s))| passes(s, 0.0, 0.0))
+            .filter(|(_, (_, s))| passes(s, loosest, 0.0))
             .map(|(i, _)| i)
             .collect();
-        if strict_ok.len() > kept.len() {
-            kept = strict_ok;
+        if req.budget > 0 && ignoring_time.len() > kept.len() {
+            kept = ignoring_time;
             relaxed = Some(format!(
                 "Nothing fits {} cleanly, so these are the closest.",
                 score::humanize_budget(req.budget)
             ));
+        } else if !kept.is_empty() && conds.iter().any(|d| d.id != "installed") {
+            relaxed = Some(format!(
+                "Only {} of your games work with {}.",
+                kept.len(),
+                names_of(&conds)
+            ));
         }
-    } else if kept.len() < MIN_HAND && !kept.is_empty() {
-        relaxed = Some(format!(
-            "Only {} of your games work with {}.",
-            kept.len(),
-            names_of(&conds)
-        ));
     }
 
     let blame = kept
@@ -247,7 +249,7 @@ fn loosened_note(
     let time = score::humanize_budget(budget);
     match (tight.is_empty(), time_cuts) {
         (false, true) => format!(
-            "Few games meet {} within {time}, so I loosened it a little.",
+            "Few games fit {time} and meet {} strictly, so I loosened both a little.",
             names_of(&tight)
         ),
         (false, false) => format!(
@@ -948,5 +950,39 @@ mod tests {
         assert_eq!(face_of(&c, Slot::Unfinished), Slot::Thread);
         c.game.last_played = now() - 90 * 86400;
         assert_eq!(face_of(&c, Slot::Unfinished), Slot::Unfinished);
+    }
+
+    #[test]
+    fn nothing_is_announced_when_nothing_was_loosened() {
+        let mut all = library();
+        for (n, c) in all.iter_mut().enumerate() {
+            c.game.installed = n < 5;
+        }
+        let req = request(&["installed"]);
+        let d = deck(&all, &req, 1, &HashMap::new());
+        assert_eq!(d.scored.len(), 5);
+        assert!(d.relaxed.is_none(), "{:?}", d.relaxed);
+    }
+
+    #[test]
+    fn an_impossible_budget_falls_back_and_says_so_even_with_a_soft_condition() {
+        let tags = ["Grand Strategy", "Turn-Based Strategy", "Singleplayer"];
+        let all: Vec<Candidate> = (1..=12)
+            .map(|i| {
+                candidate(
+                    i,
+                    &format!("Epic {i}"),
+                    &tags,
+                    &["Single-player", "Save Anytime"],
+                    300,
+                )
+            })
+            .collect();
+        let mut req = request(&["quiet"]);
+        req.budget = 20;
+        let d = deck(&all, &req, 1, &HashMap::new());
+        assert!(!d.scored.is_empty(), "{:?}", d.blame);
+        let note = d.relaxed.expect("the fallback must be announced");
+        assert!(note.contains("closest"), "{note}");
     }
 }

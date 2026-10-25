@@ -5,6 +5,10 @@ const V27: u32 = 0x07564427;
 const V28: u32 = 0x07564428;
 const V29: u32 = 0x07564429;
 
+/// Real appinfo trees are under ten levels deep; anything deeper is corruption,
+/// and recursing into it would overflow the stack of the scanning thread.
+const MAX_DEPTH: usize = 32;
+
 /// Everything the Steam client has cached about one app that the engine can use,
 /// decoded from ids into plain facts. Nothing here needs a network call.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -201,6 +205,10 @@ impl Reader<'_, '_> {
     /// unknown-typed blob stops the walk and returns what was read so far.
     fn object(&mut self, depth: usize, keep: bool) -> Kv {
         let mut items = vec![];
+        if depth > MAX_DEPTH {
+            self.broken = true;
+            return Kv::Map(items);
+        }
         loop {
             let Some(t) = self.c.u8() else {
                 self.broken = true;
@@ -470,5 +478,15 @@ mod tests {
             assert_eq!(hl2.kind, "game");
             assert!(!hl2.info.tags.is_empty(), "tags should decode");
         }
+    }
+
+    #[test]
+    fn a_corrupt_deeply_nested_blob_cannot_overflow_the_stack() {
+        let mut kv = vec![];
+        for _ in 0..100_000 {
+            kv.extend([0x00, b'a', 0]);
+        }
+        let map = parse_bytes(&v27_file(&kv)).expect("the file itself parses");
+        assert!(map.is_empty());
     }
 }

@@ -365,7 +365,7 @@ pub fn shelf(db: &Db, id: &str, limit: usize) -> Result<Vec<ShelfItem>> {
         "gentle" => by_condition(&live, "gentle", 0.85, |c| c.shape.chill >= 0.55),
         "deck" => {
             let mut v: Vec<&&Candidate> =
-                live.iter().copied().filter(|c| c.meta.deck == 4).collect();
+                live.iter().copied().filter(|c| c.meta.deck == 3).collect();
             v.sort_by_key(|c| (std::cmp::Reverse(c.game.installed), -c.meta.metacritic));
             v.into_iter()
                 .map(|c| item(c, "Deck verified".to_string()))

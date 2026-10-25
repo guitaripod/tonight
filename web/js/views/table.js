@@ -49,6 +49,7 @@ export async function renderTable(root, ctx) {
 /// The intake: three questions in words, then the things that are simply true
 /// about tonight. Every tap re-counts how many games survive.
 function renderRitual(root, ctx) {
+  window.scrollTo({ top: 0 });
   const chosen = intake();
   const state = ctx.state;
   const valid = new Set(state.conditions.map((c) => c.id));
@@ -255,6 +256,7 @@ function tonightLine(ctx, hand) {
 
 /// The hand. Cards land face-down, then turn over one at a time.
 export function renderHand(root, ctx, hand, { animate }) {
+  window.scrollTo({ top: 0 });
   const locked = hand.cards.length <= 1;
   const seats = h("div", { class: "hand", dataset: { count: String(hand.cards.length) } });
 

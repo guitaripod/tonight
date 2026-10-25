@@ -151,23 +151,36 @@ pub fn reason_label(id: &str) -> String {
         .unwrap_or_else(|| id.to_string())
 }
 
+/// The verdicts a session may end with. Anything else is a typo, not a judgement.
+const VERDICTS: &[&str] = &["loved", "kept", "fine", "bounced", "never"];
+
 /// Ends a session with a verdict. Bailing out is a first-class, guilt-free outcome
 /// and teaches the model just as much as loving it does, provided it knows why.
+/// Ending a session twice, or one that was already closed as abandoned, changes
+/// nothing: a verdict is only ever learned from once.
 pub fn end(db: &Db, id: i64, verdict: &str, reason: Option<&str>) -> Result<i64> {
-    let reason = reason.filter(|r| BAIL_REASONS.iter().any(|(k, _)| k == r));
-    let (appid, conditions) = db.with(|c| {
+    if !VERDICTS.contains(&verdict) {
+        return Err(anyhow!("unknown verdict “{verdict}”"));
+    }
+    let reason = reason
+        .filter(|_| verdict == "bounced")
+        .filter(|r| BAIL_REASONS.iter().any(|(k, _)| k == r));
+    let (appid, conditions, closed) = db.with(|c| {
         let row: (i64, Option<String>) = c.query_row(
             "SELECT appid, conditions FROM sessions WHERE id=?1",
             params![id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
-        c.execute(
+        let closed = c.execute(
             "UPDATE sessions SET ended_at=?2, verdict=?3, bail_reason=?4
              WHERE id=?1 AND ended_at IS NULL",
             params![id, now(), verdict, reason],
         )?;
-        Ok(row)
+        Ok((row.0, row.1, closed))
     })?;
+    if closed == 0 {
+        return Ok(appid);
+    }
     let conditions: Vec<String> = conditions
         .and_then(|j| serde_json::from_str(&j).ok())
         .unwrap_or_default();
@@ -179,18 +192,25 @@ pub fn end(db: &Db, id: i64, verdict: &str, reason: Option<&str>) -> Result<i64>
         )
         .unwrap_or(0))
     })?;
-    db.log_event(appid, verdict, None, None, None, Some(seconds))?;
+
+    let blames_the_game = reason.is_none() || reason == Some("bad");
+    db.log_event(
+        appid,
+        if blames_the_game { verdict } else { "bailed" },
+        None,
+        None,
+        None,
+        Some(seconds),
+    )?;
 
     let mut signal = taste::signal_for(verdict);
-    if verdict == "bounced" {
-        if let Some(why) = reason {
-            db.log_note(appid, "bail_reason", why)?;
-            if why != "bad" {
-                signal = -0.1;
-            }
-            if why == "sound" {
-                crate::engine::overrides::set(db, appid, "sound", Some(0.85))?;
-            }
+    if let Some(why) = reason {
+        db.log_note(appid, "bail_reason", why)?;
+        if why != "bad" {
+            signal = -0.1;
+        }
+        if why == "sound" {
+            crate::engine::overrides::set(db, appid, "sound", Some(0.85))?;
         }
     }
     if matches!(verdict, "loved" | "kept" | "fine") && conditions.iter().any(|c| c == "quiet") {
@@ -368,5 +388,67 @@ mod tests {
         start(db, 14, None, 0, "mellow", "surprise", &[]).unwrap();
         let second = start(db, 15, None, 0, "mellow", "surprise", &[]).unwrap();
         assert_eq!(current(db).unwrap().unwrap().id, second.id);
+    }
+
+    #[test]
+    fn ending_twice_learns_once() {
+        let scratch = Scratch::new();
+        let db = &scratch.db;
+        seed(db, 20, "Once", r#"["Puzzle"]"#);
+        let s = start(db, 20, None, 0, "mellow", "surprise", &[]).unwrap();
+        end(db, s.id, "loved", None).unwrap();
+        end(db, s.id, "loved", None).unwrap();
+        let loved = load::one(db, 20).unwrap().unwrap().history.loved;
+        let weight: f64 = db
+            .with(|c| {
+                Ok(
+                    c.query_row("SELECT weight FROM taste WHERE dim='tag:Puzzle'", [], |r| {
+                        r.get(0)
+                    })?,
+                )
+            })
+            .unwrap();
+        assert_eq!(loved, 1);
+        assert!(weight < 0.5, "taste moved twice: {weight}");
+    }
+
+    #[test]
+    fn an_abandoned_session_closed_by_a_new_one_cannot_be_judged_later() {
+        let scratch = Scratch::new();
+        let db = &scratch.db;
+        seed(db, 21, "Old", "[]");
+        seed(db, 22, "New", "[]");
+        let old = start(db, 21, None, 0, "mellow", "surprise", &[]).unwrap();
+        start(db, 22, None, 0, "mellow", "surprise", &[]).unwrap();
+        end(db, old.id, "never", None).unwrap();
+        assert!(!load::one(db, 21).unwrap().unwrap().prefs.amnesty);
+    }
+
+    #[test]
+    fn nonsense_verdicts_are_refused_and_reasons_only_follow_a_bail() {
+        let scratch = Scratch::new();
+        let db = &scratch.db;
+        seed(db, 23, "Strict", "[]");
+        let s = start(db, 23, None, 0, "mellow", "surprise", &[]).unwrap();
+        assert!(end(db, s.id, "banana", None).is_err());
+        end(db, s.id, "loved", Some("sound")).unwrap();
+        assert_eq!(recent(db, 1).unwrap()[0].reason, None);
+        assert!(load::one(db, 23).unwrap().unwrap().prefs.traits.is_empty());
+    }
+
+    #[test]
+    fn a_bail_for_a_reason_other_than_the_game_is_not_counted_against_it() {
+        let scratch = Scratch::new();
+        let db = &scratch.db;
+        seed(db, 24, "Innocent", "[]");
+        for reason in ["mood", "long", "sound"] {
+            let s = start(db, 24, None, 0, "mellow", "surprise", &[]).unwrap();
+            end(db, s.id, "bounced", Some(reason)).unwrap();
+        }
+        let h = load::one(db, 24).unwrap().unwrap().history;
+        assert_eq!(h.bounces, 0);
+        let s = start(db, 24, None, 0, "mellow", "surprise", &[]).unwrap();
+        end(db, s.id, "bounced", Some("bad")).unwrap();
+        assert_eq!(load::one(db, 24).unwrap().unwrap().history.bounces, 1);
     }
 }

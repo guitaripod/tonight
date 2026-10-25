@@ -725,8 +725,9 @@ pub fn collect(meta: &Meta) -> Ballot {
         _ => {}
     }
     match meta.deck {
-        4 => ballot.cast(Axis::Controller, 0.92, 0.7, "Deck verified"),
-        2 => ballot.cast(Axis::Controller, 0.25, 0.4, "not Deck-ready"),
+        3 => ballot.cast(Axis::Controller, 0.92, 0.7, "Deck verified"),
+        2 => ballot.cast(Axis::Controller, 0.62, 0.3, "Deck playable"),
+        1 => ballot.cast(Axis::Controller, 0.25, 0.4, "not Deck-ready"),
         _ => {}
     }
     match meta.needs_online {
@@ -833,5 +834,19 @@ mod tests {
             ..Trait::guess(0.05)
         };
         assert!(sure.assume(0.6) < 0.1);
+    }
+
+    #[test]
+    fn deck_verified_is_category_three_and_unsupported_is_one() {
+        let mut m = meta(&["Platformer"], &[]);
+        m.deck = 3;
+        let verified = collect(&m).settle(Axis::Controller, 0.5, 0.3);
+        m.deck = 1;
+        let unsupported = collect(&m).settle(Axis::Controller, 0.5, 0.3);
+        m.deck = 2;
+        let playable = collect(&m).settle(Axis::Controller, 0.5, 0.3);
+        assert!(verified.value > playable.value);
+        assert!(playable.value > unsupported.value);
+        assert!(verified.high.iter().any(|l| l == "Deck verified"));
     }
 }

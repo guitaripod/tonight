@@ -52,10 +52,13 @@ the way tonight?**
 
 | The deal | The table afterwards |
 | --- | --- |
-| ![The three questions and the deal](docs/screens/table.png) | ![A dealt hand on the table](docs/screens/hand.png) |
+| ![The questions, the conditions and the live count](docs/screens/table.png) | ![A dealt hand, each card checked against tonight](docs/screens/hand.png) |
 
 Every recommendation states its reasoning in a sentence you can argue with —
-*"You stopped 40 minutes in, 9 months ago. That was never a fair trial."*
+*"You stopped 40 minutes in, 9 months ago. That was never a fair trial."* — and
+*Why this?* shows the arithmetic behind it:
+
+<p align="center"><img src="docs/screens/why.png" alt="Why this? shows how the score adds up and how the game meets each condition" width="440"></p>
 
 ---
 

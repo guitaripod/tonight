@@ -82,15 +82,25 @@ pub fn router(state: AppState) -> Router {
 
 async fn state_handler(State(st): State<AppState>) -> ApiResult<Json<Value>> {
     let db = &st.db;
-    let counts: (i64, i64, i64, i64, i64) = db.with(|c| {
+    let counts: (i64, i64, i64, i64, i64, i64) = db.with(|c| {
         Ok(c.query_row(
             "SELECT (SELECT COUNT(*) FROM games),
                     (SELECT COUNT(*) FROM meta WHERE ok=1 AND fetched_at>0),
                     (SELECT COUNT(*) FROM games WHERE installed=1),
                     (SELECT COUNT(*) FROM prefs WHERE amnesty=1),
-                    (SELECT COUNT(*) FROM sessions)",
+                    (SELECT COUNT(*) FROM sessions),
+                    (SELECT COUNT(*) FROM meta WHERE tags <> '[]')",
             [],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            },
         )?)
     })?;
     let has_key = !db.setting_or("steam_api_key", "").trim().is_empty();
@@ -99,7 +109,7 @@ async fn state_handler(State(st): State<AppState>) -> ApiResult<Json<Value>> {
         .filter(|c| load::is_game(c))
         .count();
     Ok(Json(json!({
-        "library": { "games": counts.0, "playable": playable, "enriched": counts.1,
+        "library": { "games": counts.0, "playable": playable, "enriched": counts.1, "tagged": counts.5,
                      "installed": counts.2, "retired": counts.3, "sessions": counts.4 },
         "steam_root": st.cfg.steam_root.as_ref().map(|p| p.display().to_string()),
         "data_dir": st.cfg.data_dir.display().to_string(),

@@ -86,7 +86,8 @@ export async function renderSettings(root, ctx) {
         "dl",
         { class: "stat-grid" },
         h("div", { class: "stat" }, h("dt", {}, "In the library"), h("dd", {}, s.library.games)),
-        h("div", { class: "stat" }, h("dt", {}, "Identified"), h("dd", {}, s.library.enriched)),
+        h("div", { class: "stat" }, h("dt", {}, "Tagged"), h("dd", {}, s.library.tagged)),
+        h("div", { class: "stat" }, h("dt", {}, "Described"), h("dd", {}, s.library.enriched)),
         h("div", { class: "stat" }, h("dt", {}, "Installed"), h("dd", {}, s.library.installed)),
         h("div", { class: "stat" }, h("dt", {}, "Artwork cached"), h("dd", {}, s.artwork_cached))
       ),

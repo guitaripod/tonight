@@ -169,7 +169,7 @@ pub fn evaluate(c: &Candidate, id: &str) -> Option<Fit> {
     let s = &c.shape;
     Some(match id {
         "quiet" => {
-            let risk = s.sound.assume(0.62);
+            let risk = s.sound.assume(0.8);
             let fit = 1.0 - risk.powf(1.3);
             let text = match standing(fit) {
                 Standing::Good => with_reasons("Nothing in it needs the sound", &s.sound.low),
@@ -181,7 +181,7 @@ pub fn evaluate(c: &Candidate, id: &str) -> Option<Fit> {
             Fit::new(def, fit, text)
         }
         "interrupt" => {
-            let fit = s.pause.assume(0.45);
+            let fit = s.pause.assume(0.3);
             let text = match standing(fit) {
                 Standing::Good => {
                     with_reasons("You can drop it mid-way and lose nothing", &s.pause.high)
@@ -235,7 +235,7 @@ pub fn evaluate(c: &Candidate, id: &str) -> Option<Fit> {
             Fit::new(def, fit, text)
         }
         "offline" => {
-            let fit = 1.0 - s.online.assume(0.3);
+            let fit = 1.0 - s.online.assume(0.75);
             let text = match standing(fit) {
                 Standing::Good => with_reasons("Runs without a connection", &s.online.low),
                 Standing::Okay => with_reasons("Mostly offline, with online parts", &s.online.high),
@@ -255,7 +255,7 @@ pub fn evaluate(c: &Candidate, id: &str) -> Option<Fit> {
             Fit::new(def, fit, text).strict()
         }
         "gentle" => {
-            let fit = 1.0 - (s.scare.assume(0.12) * 1.25).min(1.0);
+            let fit = 1.0 - (s.scare.assume(0.5) * 1.25).min(1.0);
             let text = match standing(fit) {
                 Standing::Good => "Nothing frightening in it".to_string(),
                 Standing::Okay => with_reasons("Tense in places", &s.scare.high),
@@ -373,5 +373,16 @@ mod tests {
             "quiet".to_string(),
         ];
         assert_eq!(normalize(&ids).len(), 1);
+    }
+
+    #[test]
+    fn a_game_nothing_is_known_about_passes_no_condition_at_the_strictest_rung() {
+        let mut blank = candidate("Mystery", &[], &[], true);
+        blank.meta.genres.clear();
+        blank.shape = shape::derive(&blank.game, &blank.meta, &Personal::default());
+        for id in ["quiet", "interrupt", "couch", "offline", "gentle"] {
+            let fit = evaluate(&blank, id).unwrap();
+            assert!(fit.value < 0.42, "{id} gave an unknown game {}", fit.value);
+        }
     }
 }
